@@ -1,0 +1,2 @@
+class BLAST(object):
+    pass

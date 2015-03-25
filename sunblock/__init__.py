@@ -8,7 +8,7 @@ import sunblock.util as util
 def cli():
     pass
 
-@cli.command()
+@cli.command(help="Generate a job configuration")
 @click.argument('template')
 def init(template):
     # Does template exist?
@@ -16,7 +16,9 @@ def init(template):
         print("[FAIL] No template for job type: '%s'" % template)
         sys.exit(1)
 
-@cli.command()
+    print("[NOTE] Found template for job type: '%s'" % template)
+
+@cli.command(help="List available job configuration templates")
 def list():
     print("\n".join(util.get_template_list()))
 
