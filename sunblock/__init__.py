@@ -24,9 +24,10 @@ def init(template):
 
     # Prompt
     for key, conf in sorted(job.config.items(), key=lambda x: x[1]["order"]):
-        conf["value"] = click.prompt(conf["prompt"], type=conf["type"])
+        job.set_key(key, click.prompt(conf["prompt"], type=conf["type"]))
 
     # Check config
+    #TODO More helpful output -- what key is missing or incorrect?
     if not job.check():
         log.error("Invalid job configuration. Aborting.")
         sys.exit(1)
