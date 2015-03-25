@@ -15,6 +15,10 @@ setup(
 
     packages=find_packages(),
 
+    package_data={
+        'sunblock': ['templates/*.json']
+    },
+
     entry_points={
         'console_scripts': [
             'sunblock = sunblock:cli',
