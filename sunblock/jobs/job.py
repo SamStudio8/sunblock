@@ -92,7 +92,7 @@ class Job(object):
             n = self.array["n"]
 
         # Build header
-        sge_lines = ["",
+        sge_lines = [
             "#$ -S /bin/sh",
             "#$ -j y",
             "#$ -cwd",
