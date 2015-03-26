@@ -100,6 +100,7 @@ class Job(object):
             "#$ -l h_vmem=%dG" % mem_gb,
             "#$ -l h_rt=%d:0:0" % time_hours,
             "#$ -V",
+            "#$ -R y",
             "#$ -t 1-%d" % n,
         ]
         sge_lines.append("\n")
