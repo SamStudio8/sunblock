@@ -9,6 +9,7 @@ class BLAST2GFF(job.Job):
 
     def __init__(self):
         super(BLAST2GFF, self).__init__()
+        self.template_name = "blast2gff"
 
         #TODO Output dir
         self.add_key("directory", "Path to directory of blast6 files", "BLAST6 Directory", Path(exists=True, readable=True, writable=True, resolve_path=True))
@@ -17,42 +18,21 @@ class BLAST2GFF(job.Job):
         self.add_key("db_qual", "Database Quality Threshold", "Database Quality Threshold (SP10, TR8)", int)
 
     def execute(self):
-        def generate_array_lines(name, l):
-            ret = []
-            for i, f in enumerate(l):
-                if i == 0:
-                    ret.append(name + "=(" + f.strip())
-                else:
-                    ret.append("\t" + f.strip())
-            ret.append(")")
-            return ret
+        self.use_module("python")
+        self.use_venv("/ibers/ernie/groups/rumenISPG/mgkit/venv/bin/activate")
+        self.add_array("queries", sorted(glob.glob(self.config["directory"]["value"] + "/*.blast6")), "QUERY")
 
-        # Generate SGE
-        sge_lines = ["",
-            "#$ -S /bin/sh",
-            "#$ -j y",
-            "#$ -cwd",
-            "#$ -q large.q",
-            "#$ -l h_vmem=1G",
-            "#$ -l h_rt=6:0:0",
-            "#$ -V",
-            "#$ -t 1-" + str(len(glob.glob(self.config["directory"]["value"] + "/*.blast6"))),
-            "",
-            "module add python",
-            "source /ibers/ernie/groups/rumenISPG/mgkit/venv/bin/activate",
-            ""] + generate_array_lines("queries", sorted(glob.glob(self.config["directory"]["value"] + "/*.blast6"))) + [
-            "",
-            "CURR_i=$(expr $SGE_TASK_ID - 1)",
-            "QUERY=${queries[$CURR_i]}",
+        self.set_pre_commands([
             "OUTFILE=`dirname $QUERY`/`basename $QUERY .blast6`.gff.wip",
-            "",
-            "echo $QUERY $OUTFILE",
+        ])
+
+        self.set_commands([
             "blast2gff uniprot -b %d -dbq %d -db %s $QUERY $OUTFILE" % (self.config["bit_score"]["value"], self.config["db_qual"]["value"], self.config["database"]["value"]),
             #"rename 's/\.wip$//' $OUTFILE",
             "mv $OUTFILE `echo $OUTFILE | sed 's/.wip$//'`",
-            "deactivate",
-        ]
-        sys.stdout.writelines("\n".join(sge_lines) + "\n")
+        ])
 
-        # Submit
-        pass
+        self.add_pre_log_line("echo $QUERY `echo $OUTFILE | sed 's/.wip$//'`")
+        self.add_post_log_line("md5sum `echo $OUTFILE | sed 's/.wip$//'`")
+
+        print self.generate_sge(["amd.q", "intel.q"], 1, 6, 1)

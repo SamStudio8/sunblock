@@ -7,4 +7,3 @@ def get_template_list():
         "blast": blast.BLAST,
         "blast2gff": blast2gff.BLAST2GFF
     }
-
