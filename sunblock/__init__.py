@@ -13,6 +13,7 @@ def cli():
 @cli.command(help="Generate a job configuration")
 @click.argument('template')
 def init(template):
+
     # Does template exist?
     if template not in util.get_template_list():
         log.error("No template for job type: '%s'" % template)
