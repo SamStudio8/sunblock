@@ -137,7 +137,7 @@ class Job(object):
         sge_lines.append("\n#Pre Log")
         # Pre Logs
         for line in self.pre_log:
-            sge_lines.append("echo \"[$(date)][$JOB_ID][$CURR_i]: $(%s)\" >> %s" % (line, log_path))
+            sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(%s)\" >> %s" % (line, log_path))
 
         sge_lines.append("\n#Commands")
         # Commands
@@ -147,7 +147,7 @@ class Job(object):
         sge_lines.append("\n#Post Log")
         # Post Log
         for line in self.post_log:
-            sge_lines.append("echo \"[$(date)][$JOB_ID][$CURR_i]: $(%s)\" >> %s" % (line, log_path))
+            sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(%s)\" >> %s" % (line, log_path))
 
         # Shut down the venv
         if self.venv is not None:
