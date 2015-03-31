@@ -104,5 +104,23 @@ class BLAST(job.Job):
                 fo.writelines(self.generate_sge(["large.q", "amd.q", "intel.q"], 1, 18, 1))
                 fo.close()
         else:
-            print "Go away."
-            sys.exit(1)
+            self.use_module("BLAST/blast-2.2.28")
+            self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(database) + "*."+ self.config["queries_ext"]["value"])), "QUERY")
+
+            self.set_pre_commands([
+                "DB=`basename %s`" % database,
+                "OUTFILE=%s/`basename $QUERY .%s`.$DB.blast6.wip" % (self.config["outdir"]["value"], self.config["queries_ext"]["value"]),
+            ])
+
+            self.set_commands([
+                self.config["command"]["value"] + " -query $QUERY -db " + database + " -out $OUTFILE -outfmt 6 -num_threads $NSLOTS " + self.config["payload"]["value"],
+                "mv $OUTFILE `echo $OUTFILE | sed 's/.wip$//'`",
+            ])
+
+            self.add_pre_log_line("echo $QUERY \"%s\" `echo $OUTFILE | sed 's/.wip$//'`" % database)
+            self.add_post_log_line("md5sum `echo $OUTFILE | sed 's/.wip$//'`")
+
+            desc = "%s-%s" % (os.path.basename(self.config["queries_dir"]["value"]), os.path.basename(database))
+            fo = open("%s.%s.%s.sunblock.sge" % (self.template_name, desc, datetime.now().strftime("%Y-%m-%d_%H%M")), "w")
+            fo.writelines(self.generate_sge(["large.q", "amd.q", "intel.q"], 1, 18, 1))
+            fo.close()
