@@ -112,6 +112,7 @@ class Job(object):
 
         # Add array if defined
         if self.array is not None:
+            #TODO throw error for empty array
             for i, f in enumerate(self.array["values"]):
                 if i == 0:
                     # Open array definition
