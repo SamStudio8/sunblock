@@ -82,8 +82,8 @@ class BLAST(job.Job):
                     self.set_key(key, old_config[key]["value"])
 
                 self.use_module("BLAST/blast-2.2.28")
-                #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
-                self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(curr_shard) + "*."+ self.config["queries_ext"]["value"])), "QUERY")
+                self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
+                #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(curr_shard) + "*."+ self.config["queries_ext"]["value"])), "QUERY")
 
 
                 self.set_pre_commands([
@@ -105,7 +105,8 @@ class BLAST(job.Job):
                 fo.close()
         else:
             self.use_module("BLAST/blast-2.2.28")
-            self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(database) + "*."+ self.config["queries_ext"]["value"])), "QUERY")
+            #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(database) + "*."+ self.config["queries_ext"]["value"])), "QUERY")
+            self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
 
             self.set_pre_commands([
                 "DB=`basename %s`" % database,
