@@ -14,11 +14,11 @@ from datetime import datetime
 
 class Account(object):
 
-    def __init__(self, acct_path, quiet, parse_extra=None):
+    def __init__(self, acct_path, noisy, parse_extra=None):
         self.fh = open(acct_path)
         self.jobs = {}
         self.parse_extra = parse_extra
-        self.quiet = quiet
+        self.noisy = noisy
 
         self.fields_encountered = []
         self.parse()
@@ -98,7 +98,7 @@ class Account(object):
                 "cpu": float(fields[36]),
                 "mem": float(fields[37]),
                 "io": float(fields[38]),
-                "category": self.parse_category(fields[39], self.quiet),
+                "category": self.parse_category(fields[39], self.noisy),
                 "iow": float(fields[40]),
                 "pe_taskid": int(fields[41]) if fields[41] != "NONE" else None,
                 "maxvmem": float(fields[42]),
@@ -106,12 +106,12 @@ class Account(object):
                 "ar_submission_time": fields[44]
             }
         except IndexError:
-            if not self.quiet:
+            if self.noisy:
                 sys.stderr.write("[WARN] Seemingly invalid job line encountered. Skipping.\n")
             return None
 
     @staticmethod
-    def parse_category(category_str, quiet):
+    def parse_category(category_str, noisy):
         """
         Parse the queue 'category' field as found in a job line, typically
         containing additional options specified to the queue on submission,
@@ -156,13 +156,13 @@ class Account(object):
                             # Convert bytes to MB
                             value = float(value) / 1000000
                         else:
-                            if not quiet:
+                            if noisy:
                                 sys.stderr.write("[WARN] Unknown unit of memory encountered parsing -l subfield in queue category field: %s\n" % value[-1].upper())
                                 sys.stderr.write("       %s\n" % field.strip())
                     elif key.lower() == "h_rt":
                         value = int(value)
                     else:
-                        if not quiet:
+                        if noisy:
                             sys.stderr.write("[WARN] Unknown subfield encountered parsing queue category field: %s\n" % key)
                             sys.stderr.write("       %s\n" % field.strip())
 
@@ -176,7 +176,7 @@ class Account(object):
                 #NOTE No action required
                 pass
             else:
-                if not quiet:
+                if noisy:
                     sys.stderr.write("[WARN] Unknown queue category string field: %s\n" % field)
                     sys.stderr.write("       %s\n" % category_str)
 
@@ -265,7 +265,7 @@ class Account(object):
                 if field not in self.fields_encountered:
                     self.fields_encountered.append(field)
 
-                    if not self.quiet:
+                    if self.noisy:
                         sys.stderr.write("[WARN] Field '%s' not found in job object.\n" % field)
 
         return "\t".join(out_str)

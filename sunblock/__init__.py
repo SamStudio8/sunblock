@@ -100,81 +100,80 @@ def execute(config):
         else:
             print("Submitted %d job arrays, totalling %d jobs." % (new_record["njobs"], new_record["tjobs"]))
 
-@cli.command(help="Check the status of a submitted job")
-@click.argument("job_id", type=int)
+@cli.command(help="List available templates")
+def templates():
+    print("\n".join(util.get_template_list()))
+
+@cli.command(help="Summarise job information")
 @click.option("--acct_path", default="/cm/shared/apps/sge/6.2u5p2/default/common/accounting", type=click.Path(exists=True, readable=True))
-@click.option("--format", default="jobnumber:hostname:jobname:exit_status")
-@click.option("--failed", is_flag=True)
-@click.option("--quiet", is_flag=True)
-def check(job_id, acct_path, format, failed, quiet):
+@click.option("--expand", is_flag=True)
+@click.option("--noisy", is_flag=True)
+def jobs(acct_path, expand, noisy):
     jobs = util.get_job_list()
     if not jobs:
         print("No jobs found.")
-    else:
-        from acct_parse import Account
-        try:
-            job = jobs[job_id]
-        except IndexError:
-            print("Invalid job id.")
-            sys.exit(1)
+        sys.exit(0)
 
-        to_search = []
-        to_search_d = {}
-        # Collect jids
+ #   if job_id:
+ #       try:
+ #           job = jobs[job_id]
+ #       except IndexError:
+ #           print("Invalid job id.")
+ #           sys.exit(1)
+
+    from acct_parse import Account
+    job_statii = {}
+    jid_to_i = {}
+
+    # Collect jids to check in qacct
+    for i, job in enumerate(jobs):
+#        if job_id:
+#            if i != job_id:
+#                continue
+
+        job_statii[i] = {
+            "subjobs": {},
+            "total_found": 0,
+            "total_nonzero": 0
+        }
+
         for subjob in job["jobs"]:
-            to_search.append(subjob["jid"])
-            to_search_d[subjob["jid"]] = {
+            job_statii[i]["subjobs"][subjob["jid"]] = {
+                "jid": subjob["jid"],
                 "found": 0,
                 "nonzero": 0,
-                "records": [],
-                "expecting": subjob["t_end"]
             }
+            jid_to_i[subjob["jid"]] = i
 
-        acct = Account(acct_path, quiet)
-        for id, job in sorted(acct.jobs.items()):
-            jid = int(id.split(":")[0])
-            try:
-                tid = id.split(":")[1]
-            except IndexError:
-                tid = ""
 
-            if jid in to_search:
-                to_search_d[jid]["found"] += 1
+    acct = Account(acct_path, noisy)
+    for id, job in sorted(acct.jobs.items()):
+        jid = int(id.split(":")[0])
+        try:
+            tid = id.split(":")[1]
+        except IndexError:
+            tid = ""
 
-                if job["exit_status"] == 0:
-                    if failed:
-                        continue
-                else:
-                    to_search_d[jid]["nonzero"] += 1
+        if jid in jid_to_i:
+            curr_jid_i = jid_to_i[jid]
+            job_statii[curr_jid_i]["total_found"] += 1
+            job_statii[curr_jid_i]["subjobs"][jid]["found"] += 1
 
-                to_search_d[jid]["records"].append(acct.print_job(jid, tid, format))
+            if job["exit_status"] != 0:
+                job_statii[curr_jid_i]["total_nonzero"] += 1
+                job_statii[curr_jid_i]["subjobs"][jid]["nonzero"] += 1
 
-        for jid in to_search_d:
-            pc = float(to_search_d[jid]["found"]) / to_search_d[jid]["expecting"]
-            pc_75 = int(pc*75)
-            print("%d\t[%s%s] %.2f%% (%d of %d, %d failed)" % (jid, pc_75*'=', (75-pc_75)*' ', pc*100, to_search_d[jid]["found"], to_search_d[jid]["expecting"], to_search_d[jid]["nonzero"]))
-#            print("%d\tWaiting on %d records...
-            for record in to_search_d[jid]["records"]:
-                print("\t%s" % record)
-
-@cli.command(help="List available [templates|jobs]")
-@click.argument('what')
-@click.option("--expand", is_flag=True)
-def list(what, expand):
-    if what.lower() == "templates":
-        print("\n".join(util.get_template_list()))
-    elif what.lower() == "jobs":
-        jobs = util.get_job_list()
-        if not jobs:
-            print("No jobs found.")
+    for i in job_statii:
+        print("%d\t%s" % (i, jobs[i]["template"]))
+        if expand:
+            for j, jid in enumerate(job_statii[i]["subjobs"]):
+                pc = float(job_statii[i]["subjobs"][jid]["found"]) / jobs[i]["jobs"][j]["t_end"]
+                pc_75 = int(pc*75)
+                print("\t%d [%s%s] %.2f%% (%d of %d, %d failed)" % (jid, pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["subjobs"][jid]["found"], jobs[i]["jobs"][j]["t_end"], job_statii[i]["subjobs"][jid]["nonzero"]))
         else:
-            for i, job in enumerate(jobs):
-                print("%d\t%s\t%s\t%d (%d)" % (i, datetime.fromtimestamp(job["timestamp"]).strftime("%Y-%m-%d_%H%M"), job["template"], job["njobs"], job["tjobs"]))
-                if expand:
-                    for subjob in job["jobs"]:
-                        print("\t\t%d\t%s (%d)" % (subjob["jid"], subjob["script_path"], subjob["t_end"]))
-    else:
-        print("Nothing to list for '%s'" % what)
+            pc = float(job_statii[i]["total_found"]) / jobs[i]["tjobs"]
+            pc_75 = int(pc*75)
+            print("[%s%s] %.2f%% (%d of %d, %d failed)" % (pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["total_found"], jobs[i]["tjobs"], job_statii[i]["total_nonzero"]))
 
 if __name__ == "__main__":
     cli()
