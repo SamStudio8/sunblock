@@ -119,9 +119,16 @@ def check(job_id, acct_path, format, failed, quiet):
             sys.exit(1)
 
         to_search = []
+        to_search_d = {}
         # Collect jids
         for subjob in job["jobs"]:
             to_search.append(subjob["jid"])
+            to_search_d[subjob["jid"]] = {
+                "found": 0,
+                "nonzero": 0,
+                "records": [],
+                "expecting": subjob["t_end"]
+            }
 
         acct = Account(acct_path, quiet)
         for id, job in sorted(acct.jobs.items()):
@@ -131,12 +138,24 @@ def check(job_id, acct_path, format, failed, quiet):
             except IndexError:
                 tid = ""
 
-            if failed:
-                if job["exit_status"] == 0:
-                    continue
-
             if jid in to_search:
-                print acct.print_job(jid, tid, format)
+                to_search_d[jid]["found"] += 1
+
+                if job["exit_status"] == 0:
+                    if failed:
+                        continue
+                else:
+                    to_search_d[jid]["nonzero"] += 1
+
+                to_search_d[jid]["records"].append(acct.print_job(jid, tid, format))
+
+        for jid in to_search_d:
+            pc = float(to_search_d[jid]["found"]) / to_search_d[jid]["expecting"]
+            pc_75 = int(pc*75)
+            print("%d\t[%s%s] %.2f%% (%d of %d, %d failed)" % (jid, pc_75*'=', (75-pc_75)*' ', pc*100, to_search_d[jid]["found"], to_search_d[jid]["expecting"], to_search_d[jid]["nonzero"]))
+#            print("%d\tWaiting on %d records...
+            for record in to_search_d[jid]["records"]:
+                print("\t%s" % record)
 
 @cli.command(help="List available [templates|jobs]")
 @click.argument('what')
