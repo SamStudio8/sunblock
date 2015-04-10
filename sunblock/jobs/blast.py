@@ -69,6 +69,7 @@ class BLAST(job.Job):
         if self.config["shards"]["value"] > 1:
             sharded = True
 
+        names = []
         if sharded:
             # Submit job
             #TODO Check database exists
@@ -83,7 +84,7 @@ class BLAST(job.Job):
 
                 self.use_module("BLAST/blast-2.2.28")
                 self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
-                #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(curr_shard) + "*."+ self.config["queries_ext"]["value"])), "QUERY")
+                #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(curr_shard) + "."+ self.config["queries_ext"]["value"])), "QUERY")
 
 
                 self.set_pre_commands([
@@ -100,12 +101,14 @@ class BLAST(job.Job):
                 self.add_post_log_line("md5sum `echo $OUTFILE | sed 's/.wip$//'`")
 
                 desc = "%s-%s" % (os.path.basename(self.config["queries_dir"]["value"]), os.path.basename(curr_shard))
-                fo = open("%s.%s.%s.sunblock.sge" % (self.template_name, desc, datetime.now().strftime("%Y-%m-%d_%H%M")), "w")
+                fname = "%s.%s.%s.sunblock.sge" % (self.template_name, desc, datetime.now().strftime("%Y-%m-%d_%H%M"))
+                fo = open(fname, "w")
                 fo.writelines(self.generate_sge(["large.q", "amd.q", "intel.q"], 1, 18, 1))
                 fo.close()
+                names.append(fname)
         else:
             self.use_module("BLAST/blast-2.2.28")
-            #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(database) + "*."+ self.config["queries_ext"]["value"])), "QUERY")
+            #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(database) + "."+ self.config["queries_ext"]["value"])), "QUERY")
             self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
 
             self.set_pre_commands([
@@ -122,6 +125,9 @@ class BLAST(job.Job):
             self.add_post_log_line("md5sum `echo $OUTFILE | sed 's/.wip$//'`")
 
             desc = "%s-%s" % (os.path.basename(self.config["queries_dir"]["value"]), os.path.basename(database))
-            fo = open("%s.%s.%s.sunblock.sge" % (self.template_name, desc, datetime.now().strftime("%Y-%m-%d_%H%M")), "w")
+            fname = "%s.%s.%s.sunblock.sge" % (self.template_name, desc, datetime.now().strftime("%Y-%m-%d_%H%M"))
+            fo = open(fname, "w")
             fo.writelines(self.generate_sge(["large.q", "amd.q", "intel.q"], 1, 18, 1))
             fo.close()
+            names.append(fname)
+        return names

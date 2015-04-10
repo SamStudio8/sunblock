@@ -7,9 +7,19 @@ from zenlog import log
 class Job(object):
 
     def __init__(self):
+        #TODO Could keep job-meta such as wait/execution time
         self.order = 0
         self.config = {}
         self.template_name = "sunblockjob"
+
+        self.modules = []
+        self.venv = None
+        self.array = None
+
+        self.pre_commands = []
+        self.commands = []
+        self.pre_log = []
+        self.post_log = []
 
     #TODO Switch to OrderedDict
     def add_key(self, name, desc, prompt, type, validate=None):
@@ -23,15 +33,6 @@ class Job(object):
             "validate": validate
         }
         self.order += 1
-
-        self.modules = []
-        self.venv = None
-        self.array = None
-
-        self.pre_commands = []
-        self.commands = []
-        self.pre_log = []
-        self.post_log = []
 
     def check(self):
         for key, conf in self.config.items():

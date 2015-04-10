@@ -1,5 +1,7 @@
+from datetime import datetime
 import json
 import sys
+import time
 
 import click
 from zenlog import log
@@ -57,12 +59,99 @@ def execute(config):
         log.error("Invalid job configuration. Aborting.")
         sys.exit(1)
 
-    job.execute()
+    script_names = job.execute()
+    if len(script_names) == 0:
+        print("[WARN] No script names returned by config.")
+    else:
+        new_record = {
+            "njobs": 0,
+            "tjobs": 0,
+            "jobs": [],
+            "timestamp": int(time.mktime(datetime.now().timetuple())),
+            "template": job.template_name
+        }
 
+        from subprocess import check_output
+        for name in script_names:
+            p = check_output(['qsub', '-terse', name])
 
-@cli.command(help="List available job configuration templates")
-def list():
-    print("\n".join(util.get_template_list()))
+            try:
+                jid, trange = p.strip().split(".")
+            except ValueError:
+                jid = p.strip()
+                trange = None
+            ts = 1
+            te = 1
+
+            if trange:
+                ts, te = trange.split(":")[0].split("-")
+
+            new_record["jobs"].append({
+                "jid": int(jid),
+                "t_start": int(ts),
+                "t_end": int(te),
+                "script_path": name
+            })
+            new_record["njobs"] += 1
+            new_record["tjobs"] += int(te)
+
+        if not util.append_job_list(new_record):
+            print("Error appending to sunblock record file.")
+        else:
+            print("Submitted %d job arrays, totalling %d jobs." % (new_record["njobs"], new_record["tjobs"]))
+
+@cli.command(help="Check the status of a submitted job")
+@click.argument("job_id", type=int)
+@click.option("--acct_path", default="/cm/shared/apps/sge/6.2u5p2/default/common/accounting", type=click.Path(exists=True, readable=True))
+@click.option("--format", default="jobnumber:hostname:jobname:exit_status")
+@click.option("--failed", is_flag=True)
+@click.option("--quiet", is_flag=True)
+def check(job_id, acct_path, format, failed, quiet):
+    jobs = util.get_job_list()
+    if not jobs:
+        print("No jobs found.")
+    else:
+        from acct_parse import Account
+        try:
+            job = jobs[job_id]
+        except IndexError:
+            print("Invalid job id.")
+            sys.exit(1)
+
+        to_search = []
+        # Collect jids
+        for subjob in job["jobs"]:
+            to_search.append(subjob["jid"])
+
+        acct = Account(acct_path, quiet)
+        for id, job in sorted(acct.jobs.items()):
+            jid = int(id.split(":")[0])
+            try:
+                tid = id.split(":")[1]
+            except IndexError:
+                tid = ""
+
+            if failed:
+                if job["exit_status"] == 0:
+                    continue
+
+            if jid in to_search:
+                print acct.print_job(jid, tid, format)
+
+@cli.command(help="List available [templates|jobs]")
+@click.argument('what')
+def list(what):
+    if what.lower() == "templates":
+        print("\n".join(util.get_template_list()))
+    elif what.lower() == "jobs":
+        jobs = util.get_job_list()
+        if not jobs:
+            print("No jobs found.")
+        else:
+            for i, job in enumerate(jobs):
+                print("%d\t%s\t%s\t%d (%d)" % (i, datetime.fromtimestamp(job["timestamp"]).strftime("%Y-%m-%d_%H%M"), job["template"], job["njobs"], job["tjobs"]))
+    else:
+        print("Nothing to list for '%s'" % what)
 
 if __name__ == "__main__":
     cli()
