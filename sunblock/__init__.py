@@ -140,7 +140,8 @@ def check(job_id, acct_path, format, failed, quiet):
 
 @cli.command(help="List available [templates|jobs]")
 @click.argument('what')
-def list(what):
+@click.option("--expand", is_flag=True)
+def list(what, expand):
     if what.lower() == "templates":
         print("\n".join(util.get_template_list()))
     elif what.lower() == "jobs":
@@ -150,6 +151,9 @@ def list(what):
         else:
             for i, job in enumerate(jobs):
                 print("%d\t%s\t%s\t%d (%d)" % (i, datetime.fromtimestamp(job["timestamp"]).strftime("%Y-%m-%d_%H%M"), job["template"], job["njobs"], job["tjobs"]))
+                if expand:
+                    for subjob in job["jobs"]:
+                        print("\t\t%d\t%s (%d)" % (subjob["jid"], subjob["script_path"], subjob["t_end"]))
     else:
         print("Nothing to list for '%s'" % what)
 
