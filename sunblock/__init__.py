@@ -8,6 +8,12 @@ from zenlog import log
 
 import sunblock.util as util
 
+#TODO Name job.out something less stupid
+#TODO View SGE file
+#TODO View output directory
+#TODO Check .md5 file for output files
+#TODO Email
+#TODO Manifest files?
 @click.group()
 def cli():
     pass
@@ -105,21 +111,47 @@ def templates():
     print("\n".join(util.get_template_list()))
 
 @cli.command(help="Summarise job information")
+@click.pass_context
+def summary(ctx):
+    ctx.forward(jobs)
+    ctx.invoke(jobs, job_id="all", type="summary")
+
+@cli.command(help="Report specific job information")
+@click.pass_context
+def summary(ctx):
+    ctx.invoke(jobs, job_id="all", type="summary")
+
+@cli.command(help="Summarise job information")
+@click.argument('job_id')
+@click.argument('type')
 @click.option("--acct_path", default="/cm/shared/apps/sge/6.2u5p2/default/common/accounting", type=click.Path(exists=True, readable=True))
+@click.option("--format", default="jobnumber:taskid:hostname:jobname:exit_status:time.time_req_td:time.time_taken_td:mem.mem_req_tot:mem.mem_used")
 @click.option("--expand", is_flag=True)
 @click.option("--noisy", is_flag=True)
-def jobs(acct_path, expand, noisy):
+@click.option("--failed", is_flag=True)
+def jobs(job_id, type, acct_path, format, expand, noisy, failed):
+    ACCEPTABLE_TYPES = ["summary", "table"]
+    if type not in ACCEPTABLE_TYPES:
+        print("Invalid report type '%s'." % type)
+        sys.exit(1)
+
     jobs = util.get_job_list()
     if not jobs:
         print("No jobs found.")
         sys.exit(0)
 
- #   if job_id:
- #       try:
- #           job = jobs[job_id]
- #       except IndexError:
- #           print("Invalid job id.")
- #           sys.exit(1)
+    if job_id.lower() != "all":
+        try:
+            job_id = int(job_id)
+            job = jobs[job_id]
+        except TypeError:
+            print("Invalid job id.")
+            sys.exit(1)
+        except IndexError:
+            print("Job with that id does not exist.")
+            sys.exit(1)
+    else:
+        job_id = None
 
     from acct_parse import Account
     job_statii = {}
@@ -127,9 +159,9 @@ def jobs(acct_path, expand, noisy):
 
     # Collect jids to check in qacct
     for i, job in enumerate(jobs):
-#        if job_id:
-#            if i != job_id:
-#                continue
+        if job_id:
+            if i != job_id:
+                continue
 
         job_statii[i] = {
             "subjobs": {},
@@ -142,38 +174,47 @@ def jobs(acct_path, expand, noisy):
                 "jid": subjob["jid"],
                 "found": 0,
                 "nonzero": 0,
+                "array_jobs": [] # Store tids
             }
             jid_to_i[subjob["jid"]] = i
 
 
     acct = Account(acct_path, noisy)
     for id, job in sorted(acct.jobs.items()):
-        jid = int(id.split(":")[0])
-        try:
-            tid = id.split(":")[1]
-        except IndexError:
-            tid = ""
+        jid = job["jobnumber"]
+        tid = job["taskid"]
 
         if jid in jid_to_i:
             curr_jid_i = jid_to_i[jid]
             job_statii[curr_jid_i]["total_found"] += 1
             job_statii[curr_jid_i]["subjobs"][jid]["found"] += 1
+            job_statii[curr_jid_i]["subjobs"][jid]["tid"] = tid
 
             if job["exit_status"] != 0:
                 job_statii[curr_jid_i]["total_nonzero"] += 1
                 job_statii[curr_jid_i]["subjobs"][jid]["nonzero"] += 1
+            else:
+                if failed:
+                    continue
+
+            job_statii[curr_jid_i]["subjobs"][jid]["array_jobs"].append(tid)
 
     for i in job_statii:
-        print("%d\t%s" % (i, jobs[i]["template"]))
-        if expand:
-            for j, jid in enumerate(job_statii[i]["subjobs"]):
-                pc = float(job_statii[i]["subjobs"][jid]["found"]) / jobs[i]["jobs"][j]["t_end"]
+        if type.lower() == "summary":
+            print("%d\t%s" % (i, jobs[i]["template"]))
+            if expand:
+                for j, jid in enumerate(job_statii[i]["subjobs"]):
+                    pc = float(job_statii[i]["subjobs"][jid]["found"]) / jobs[i]["jobs"][j]["t_end"]
+                    pc_75 = int(pc*75)
+                    print("\t%d [%s%s] %.2f%% (%d of %d, %d waiting, %d failed)" % (jid, pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["subjobs"][jid]["found"], jobs[i]["jobs"][j]["t_end"], jobs[i]["jobs"][j]["t_end"] - job_statii[i]["subjobs"][jid]["found"], job_statii[i]["subjobs"][jid]["nonzero"]))
+            else:
+                pc = float(job_statii[i]["total_found"]) / jobs[i]["tjobs"]
                 pc_75 = int(pc*75)
-                print("\t%d [%s%s] %.2f%% (%d of %d, %d waiting, %d failed)" % (jid, pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["subjobs"][jid]["found"], jobs[i]["jobs"][j]["t_end"], jobs[i]["jobs"][j]["t_end"] - job_statii[i]["subjobs"][jid]["found"], job_statii[i]["subjobs"][jid]["nonzero"]))
-        else:
-            pc = float(job_statii[i]["total_found"]) / jobs[i]["tjobs"]
-            pc_75 = int(pc*75)
-            print("[%s%s] %.2f%% (%d of %d, %d waiting, %d failed)" % (pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["total_found"], jobs[i]["tjobs"], jobs[i]["tjobs"] - job_statii[i]["total_found"], job_statii[i]["total_nonzero"]))
+                print("[%s%s] %.2f%% (%d of %d, %d waiting, %d failed)" % (pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["total_found"], jobs[i]["tjobs"], jobs[i]["tjobs"] - job_statii[i]["total_found"], job_statii[i]["total_nonzero"]))
+        elif type.lower() == "table":
+            for j, jid in enumerate(job_statii[i]["subjobs"]):
+                for tid in sorted(job_statii[i]["subjobs"][jid]["array_jobs"]):
+                    print(acct.print_job(jid, tid, format))
 
 if __name__ == "__main__":
     cli()

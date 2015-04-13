@@ -10,7 +10,7 @@ __maintainer__ = "Sam Nicholls <msn@aber.ac.uk>"
 
 import sys
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class Account(object):
 
@@ -36,7 +36,7 @@ class Account(object):
                 j.update(ja)
 
                 job_str = str(j["jobnumber"])
-                if j["taskid"] > 1:
+                if j["taskid"] > 0:
                     job_str += (":%d" % j["taskid"])
 
                 self.jobs[job_str] = j
@@ -123,7 +123,9 @@ class Account(object):
         fields = category_str.split("-")
 
         req_usergroup = "default"
-        req_l = {"h_vmem": None, "h_rt": None, "h_stack": None}
+
+        # h_rt defaults to 1800000 seconds (500 hours)
+        req_l = {"h_vmem": None, "h_rt": 1800000, "h_stack": None}
         req_queues = []
 
         for field in fields:
@@ -160,6 +162,7 @@ class Account(object):
                                 sys.stderr.write("[WARN] Unknown unit of memory encountered parsing -l subfield in queue category field: %s\n" % value[-1].upper())
                                 sys.stderr.write("       %s\n" % field.strip())
                     elif key.lower() == "h_rt":
+                        #NOTE Is in seconds
                         value = int(value)
                     else:
                         if noisy:
@@ -205,6 +208,8 @@ class Account(object):
             end_dt          end_time as datetime
             time_taken      end_time - start_time (as unix timestamp)
             time_taken_td   time_taken as datetime timedelta
+            time_req        hours requested
+            time_req_td     time_req as timedelta
         """
 
         mem_req = (job_dict["category"]["req_l"]["h_vmem"]/1024)
@@ -221,6 +226,11 @@ class Account(object):
         end_dt = datetime.fromtimestamp(job_dict["end_time"])
         time_taken_td = end_dt - start_dt
         time_taken = job_dict["end_time"] - job_dict["start_time"]
+
+        time_req = job_dict["category"]["req_l"]["h_rt"]
+        time_req_td = timedelta(seconds=time_req)
+        time_req = time_req/(60*60)
+
         return {
             "mem": {
                 "mem_req": mem_req,
@@ -234,7 +244,9 @@ class Account(object):
                 "start_dt": datetime.fromtimestamp(job_dict["start_time"]),
                 "end_dt": datetime.fromtimestamp(job_dict["end_time"]),
                 "time_taken": time_taken,
-                "time_taken_td": time_taken_td
+                "time_taken_td": time_taken_td,
+                "time_req": time_req,
+                "time_req_td": time_req_td,
             }
         }
 

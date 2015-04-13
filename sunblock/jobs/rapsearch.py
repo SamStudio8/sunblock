@@ -7,13 +7,12 @@ from click import Path
 
 from sunblock.jobs import job
 
-class BLAST(job.Job):
+class RAPSearch(job.Job):
 
     def __init__(self):
-        super(BLAST, self).__init__()
-        self.template_name = "blast"
+        super(RAPSearch, self).__init__()
+        self.template_name = "rapsearch"
 
-        self.add_key("command", "BLAST command", "BLAST command", str)
         self.add_key("queries_dir", "QDIR", "QDIR", Path(exists=True, readable=True, dir_okay=True, resolve_path=True))
         self.add_key("queries_ext", "QEXT", "QEXT", str)
         self.add_key("outdir", "outdir", "outdir", Path(exists=True, dir_okay=True, writable=True, resolve_path=True))
@@ -26,19 +25,11 @@ class BLAST(job.Job):
         self.add_key("start", "shard start [0]", "shard start [0]", int)
         self.add_key("padding", "shard pad [0]", "shard pad [0]", int)
 
-        self.add_key("payload", "payload [-evalue 0.00001]", "payload [-evalue 0.00001]", str)
+        self.add_key("payload", "payload [-evalue 0.00001]", "payload [-e 0.00001]", str)
 
     def execute(self):
         def clean_database(path):
             EXTENSIONS = [
-                "phr",
-                "pin",
-                "pog",
-                "psd",
-                "psi",
-                "psq",
-                "pal",
-                "udb",
             ]
             for ext in EXTENSIONS:
                 if path.endswith(ext):
@@ -78,22 +69,23 @@ class BLAST(job.Job):
 
                 #TODO gross.
                 old_config = self.config.copy()
-                self = BLAST()
+                self = RAPSearch()
                 for key, conf in sorted(self.config.items(), key=lambda x: x[1]["order"]):
                     self.set_key(key, old_config[key]["value"])
 
-                self.use_module("BLAST/blast-2.2.28")
+                self.use_module("RAPSearch/2.22")
+                self.WORKING_DIR = self.config["outdir"]["value"]
                 self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
                 #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(curr_shard) + "."+ self.config["queries_ext"]["value"])), "QUERY")
 
 
                 self.set_pre_commands([
                     "DB=`basename %s`" % curr_shard,
-                    "OUTFILE=%s/`basename $QUERY .%s`.$DB.blast6.wip" % (self.config["outdir"]["value"], self.config["queries_ext"]["value"]),
+                    "OUTFILE=%s/`basename $QUERY .%s`.$DB.rap6.wip" % (self.config["outdir"]["value"], self.config["queries_ext"]["value"]),
                 ])
 
                 self.set_commands([
-                    self.config["command"]["value"] + " -query $QUERY -db " + curr_shard + " -out $OUTFILE -outfmt 6 -num_threads $NSLOTS " + self.config["payload"]["value"],
+                    "rapsearch -q $QUERY -d " + curr_shard + " -o $OUTFILE -z 5 " + self.config["payload"]["value"],
                     "mv $OUTFILE `echo $OUTFILE | sed 's/.wip$//'`",
                 ])
 
@@ -104,32 +96,10 @@ class BLAST(job.Job):
                 desc = "%s-%s" % (os.path.basename(self.config["queries_dir"]["value"]), os.path.basename(curr_shard))
                 fname = "%s.%s.%s.sunblock.sge" % (self.template_name, desc, datetime.now().strftime("%Y-%m-%d_%H%M"))
                 fo = open(fname, "w")
-                fo.writelines(self.generate_sge(["large.q", "amd.q", "intel.q"], 1, 18, 1))
+                fo.writelines(self.generate_sge(["large.q", "amd.q", "intel.q"], 5, 24, 1, manifest=desc))
                 fo.close()
                 names.append(fname)
         else:
-            self.use_module("BLAST/blast-2.2.28")
-            #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(database) + "."+ self.config["queries_ext"]["value"])), "QUERY")
-            self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
-
-            self.set_pre_commands([
-                "DB=`basename %s`" % database,
-                "OUTFILE=%s/`basename $QUERY .%s`.$DB.blast6.wip" % (self.config["outdir"]["value"], self.config["queries_ext"]["value"]),
-            ])
-
-            self.set_commands([
-                self.config["command"]["value"] + " -query $QUERY -db " + database + " -out $OUTFILE -outfmt 6 -num_threads $NSLOTS " + self.config["payload"]["value"],
-                "mv $OUTFILE `echo $OUTFILE | sed 's/.wip$//'`",
-            ])
-
-            self.add_pre_log_line("echo $QUERY \"%s\" `echo $OUTFILE | sed 's/.wip$//'`" % database)
-            self.add_post_log_line("md5sum `echo $OUTFILE | sed 's/.wip$//'`")
-            self.add_post_checksum("$OUTFILE | sed 's/.wip$//'")
-
-            desc = "%s-%s" % (os.path.basename(self.config["queries_dir"]["value"]), os.path.basename(database))
-            fname = "%s.%s.%s.sunblock.sge" % (self.template_name, desc, datetime.now().strftime("%Y-%m-%d_%H%M"))
-            fo = open(fname, "w")
-            fo.writelines(self.generate_sge(["large.q", "amd.q", "intel.q"], 1, 18, 1))
-            fo.close()
-            names.append(fname)
+            pass
         return names
+

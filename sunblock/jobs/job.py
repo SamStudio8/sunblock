@@ -20,6 +20,10 @@ class Job(object):
         self.commands = []
         self.pre_log = []
         self.post_log = []
+        self.post_checksum = []
+
+        self.LIMIT = []
+        self.WORKING_DIR = None
 
     #TODO Switch to OrderedDict
     def add_key(self, name, desc, prompt, type, validate=None):
@@ -63,6 +67,13 @@ class Job(object):
         self.venv = venv_path
 
     def add_array(self, array_name, array_val, array_var):
+        new_array_val = []
+        if self.LIMIT:
+            for i, value in array_val:
+                if i in self.LIMIT:
+                    new_array_val.append(value)
+            array_val = new_array_val
+
         self.array = {
             "name": array_name,
             "values": array_val,
@@ -82,10 +93,21 @@ class Job(object):
     def add_post_log_line(self, line):
         self.post_log.append(line)
 
-    def generate_sge(self, queue_list, mem_gb, time_hours, cores):
+    def add_post_checksum(self, path):
+        self.post_checksum.append(path)
+
+    def generate_sge(self, queue_list, mem_gb, time_hours, cores, manifest=None):
 
         # Generate log name
         log_path = "%s.%s.sunblock.log" % (self.template_name, datetime.now().strftime("%Y-%m-%d_%H%M"))
+        md5_path = "%s.%s.sunblock.md5" % (self.template_name, datetime.now().strftime("%Y-%m-%d_%H%M"))
+
+        if manifest and self.array:
+            manifest_path = "%s.%s.%s.sunblock.manifest" % (self.template_name, manifest, datetime.now().strftime("%Y-%m-%d_%H%M"))
+            #TODO ew :(
+            fo = open(manifest_path, "w")
+            fo.writelines("\n".join(s.strip() for s in self.array["values"]))
+            fo.close()
 
         # Determine whether the job will be array-ed
         n = 1
@@ -96,7 +118,6 @@ class Job(object):
         sge_lines = [
             "#$ -S /bin/sh",
             "#$ -j y",
-            "#$ -cwd",
             "#$ -q %s" % ",".join(queue_list),
             "#$ -l h_vmem=%dG" % mem_gb,
             "#$ -l h_rt=%d:0:0" % time_hours,
@@ -104,6 +125,12 @@ class Job(object):
             "#$ -R y",
             "#$ -t 1-%d" % n,
         ]
+
+        if self.WORKING_DIR:
+            sge_lines.append("#$ -wd %s" % self.WORKING_DIR)
+        else:
+            sge_lines.append("#$ -cwd")
+
         sge_lines.append("\n")
 
         if cores > 1:
@@ -122,6 +149,8 @@ class Job(object):
                     sge_lines.append("\t%s" % f.strip())
             sge_lines.append(")")
             sge_lines.append("%s=${%s[$CURR_i]}" % (self.array["var"], self.array["name"]))
+
+            # Write a manifest file
 
         # Append modules
         sge_lines.append("")
@@ -150,6 +179,11 @@ class Job(object):
         # Post Log
         for line in self.post_log:
             sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(%s)\" >> %s" % (line, log_path))
+
+        if len(self.post_checksum) > 0:
+            sge_lines.append("\n#Checksum Output")
+            for path in self.post_checksum:
+                sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(md5sum `echo %s`)\" >> %s" % (path, md5_path))
 
         # Shut down the venv
         if self.venv is not None:
