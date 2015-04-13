@@ -208,7 +208,7 @@ class Account(object):
             end_dt          end_time as datetime
             time_taken      end_time - start_time (as unix timestamp)
             time_taken_td   time_taken as datetime timedelta
-            time_req        hours requested
+            time_req        seconds requested
             time_req_td     time_req as timedelta
         """
 

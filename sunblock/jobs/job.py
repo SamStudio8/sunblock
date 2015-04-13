@@ -150,8 +150,6 @@ class Job(object):
             sge_lines.append(")")
             sge_lines.append("%s=${%s[$CURR_i]}" % (self.array["var"], self.array["name"]))
 
-            # Write a manifest file
-
         # Append modules
         sge_lines.append("")
         sge_lines += ["module add %s" % name for name in self.modules]
