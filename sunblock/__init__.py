@@ -169,11 +169,11 @@ def jobs(acct_path, expand, noisy):
             for j, jid in enumerate(job_statii[i]["subjobs"]):
                 pc = float(job_statii[i]["subjobs"][jid]["found"]) / jobs[i]["jobs"][j]["t_end"]
                 pc_75 = int(pc*75)
-                print("\t%d [%s%s] %.2f%% (%d of %d, %d failed)" % (jid, pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["subjobs"][jid]["found"], jobs[i]["jobs"][j]["t_end"], job_statii[i]["subjobs"][jid]["nonzero"]))
+                print("\t%d [%s%s] %.2f%% (%d of %d, %d waiting, %d failed)" % (jid, pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["subjobs"][jid]["found"], jobs[i]["jobs"][j]["t_end"], jobs[i]["jobs"][j]["t_end"] - job_statii[i]["subjobs"][jid]["found"], job_statii[i]["subjobs"][jid]["nonzero"]))
         else:
             pc = float(job_statii[i]["total_found"]) / jobs[i]["tjobs"]
             pc_75 = int(pc*75)
-            print("[%s%s] %.2f%% (%d of %d, %d failed)" % (pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["total_found"], jobs[i]["tjobs"], job_statii[i]["total_nonzero"]))
+            print("[%s%s] %.2f%% (%d of %d, %d waiting, %d failed)" % (pc_75*'=', (75-pc_75)*' ', pc*100, job_statii[i]["total_found"], jobs[i]["tjobs"], jobs[i]["tjobs"] - job_statii[i]["total_found"], job_statii[i]["total_nonzero"]))
 
 if __name__ == "__main__":
     cli()
