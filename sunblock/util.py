@@ -1,6 +1,7 @@
 from datetime import datetime
 import json
 import os
+import sys
 
 #TODO I'd like to dynamically load modules to avoid users needing to edit this qq
 from sunblock.jobs import (
@@ -31,10 +32,22 @@ def get_job_list():
 
 def get_record_fh():
     home_path = os.path.expanduser('~')
-    sbdb_path = os.path.join(home_path, "sunblock.db.json")
+    sbdb_path = os.path.join(home_path, "sunblock", "sunblock.db.json")
     if not os.path.isfile(sbdb_path):
         print("[WARN] Creating new sunblock database at '%s'" % sbdb_path)
     return sbdb_path
+
+def get_sunblock_path():
+    home_path = os.path.expanduser('~')
+    sunblock_path = os.path.join(home_path, "sunblock")
+    if not os.path.isdir(sunblock_path):
+        print("[WARN] Creating new sunblock environment at '%s'" % sunblock_path)
+        try:
+            os.makedir(sunblock_path)
+        except:
+            print("[FAIL] Failed to create new sunblock environment at '%s'" % sunblock_path)
+            sys.exit(1)
+    return sunblock_path
 
 def append_job_list(new_record):
     record_fh = get_record_fh()

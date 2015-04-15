@@ -8,7 +8,7 @@ class HelloWorld(job.Job):
         super(HelloWorld, self).__init__()
         self.template_name = "helloworld"
 
-    def execute(self):
+    def define(self, shard=None):
         self.add_array("messages", [
             "Hello",
             "World",
@@ -18,18 +18,10 @@ class HelloWorld(job.Job):
 
         self.set_commands([
             "echo $MESSAGE",
-            "echo $MESSAGE > message.out",
+            "echo $MESSAGE > $OUTDIR/message.out",
             "if [ $(($SGE_TASK_ID % 2)) -eq 0 ]; then exit 1; fi",
         ])
 
-
-        self.add_post_checksum("message.out")
-
-        names = []
-        fname = "%s.%s.sunblock.sge" % (self.template_name, datetime.now().strftime("%Y-%m-%d_%H%M"))
-        fo = open(fname, "w")
-        fo.writelines(self.generate_sge(["amd.q", "intel.q"], 1, 1, 1, manifest="helloworld"))
-        fo.close()
-        names.append(fname)
-        return names
+        self.add_pre_log_line("echo $MESSAGE")
+        self.add_post_checksum("$OUTDIR/message.out")
 

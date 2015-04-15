@@ -1,5 +1,7 @@
 from datetime import datetime
+import os
 
+import click
 from zenlog import log
 
 #TODO Should probably have an SGEJob class inheriting from Job to
@@ -11,6 +13,7 @@ class Job(object):
         self.order = 0
         self.config = {}
         self.template_name = "sunblockjob"
+        self.name = "sunblockjob"
 
         self.modules = []
         self.venv = None
@@ -24,6 +27,8 @@ class Job(object):
 
         self.LIMIT = []
         self.WORKING_DIR = None
+
+        self.shard = None
 
     #TODO Switch to OrderedDict
     def add_key(self, name, desc, prompt, type, validate=None):
@@ -55,7 +60,105 @@ class Job(object):
                 sys.exit(1)
         self.config[key]["value"] = value
 
-    def execute(self):
+    def get_shards(self):
+        return [{
+        }]
+
+    def prepare(self, job_prefix, job_basepath, queue_list, mem_gb, time_hours, cores):
+        job_stdeo_path = os.path.join(job_basepath, "stdeo")
+        job_config_path = os.path.join(job_basepath, "config")
+        job_script_path = os.path.join(job_basepath, "script")
+        job_log_path = os.path.join(job_basepath, "log")
+
+        job_md5_log_path = os.path.join(job_log_path, job_prefix + ".md5")
+        job_log_log_path = os.path.join(job_log_path, job_prefix + ".log")
+
+        # Determine whether the job will be array-ed
+        n = 1
+        if self.array is not None:
+            n = self.array["n"]
+
+        # Build header
+        sge_lines = [
+            "#$ -S /bin/sh",
+            "#$ -q %s" % ",".join(queue_list),
+            "#$ -l h_vmem=%dG" % mem_gb,
+            "#$ -l h_rt=%d:0:0" % time_hours,
+            "#$ -V",
+            "#$ -R y",
+            "#$ -t 1-%d" % n,
+            "",
+            "# Set log path (-j y causes -e to be ignored but we'll set it anyway)",
+            "#$ -e %s/$JOB_NAME.$JOB_ID.$TASK_ID.e" % job_stdeo_path,
+            "#$ -o %s/$JOB_NAME.$JOB_ID.$TASK_ID.o" % job_stdeo_path,
+            "#$ -j y",
+        ]
+
+        if self.WORKING_DIR:
+            sge_lines.append("#$ -wd %s" % self.WORKING_DIR)
+            sge_lines.append("OUTDIR=%s" % self.WORKING_DIR)
+        else:
+            sge_lines.append("#$ -cwd")
+
+        sge_lines.append("\n")
+
+        if cores > 1:
+            sge_lines.append("#$ -pe multithread %d" % cores)
+
+        sge_lines.append("CURR_i=$(expr $SGE_TASK_ID - 1)")
+
+        # Add array if defined
+        if self.array is not None:
+            #TODO throw error for empty array
+            for i, f in enumerate(self.array["values"]):
+                if i == 0:
+                    # Open array definition
+                    sge_lines.append("\n%s=(%s" % (self.array["name"], f.strip()))
+                else:
+                    sge_lines.append("\t%s" % f.strip())
+            sge_lines.append(")")
+            sge_lines.append("%s=${%s[$CURR_i]}" % (self.array["var"], self.array["name"]))
+
+        # Append modules
+        sge_lines.append("")
+        sge_lines += ["module add %s" % name for name in self.modules]
+
+        # Start venv if needed
+        if self.venv is not None:
+            sge_lines.append("source %s" % self.venv)
+
+        sge_lines.append("\n#Pre Commands")
+        # Pre Commands
+        for line in self.pre_commands:
+            sge_lines.append(line)
+
+        sge_lines.append("\n#Pre Log")
+        # Pre Logs
+        for line in self.pre_log:
+            sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(%s)\" >> %s" % (line, job_log_log_path))
+
+        sge_lines.append("\n#Commands")
+        # Commands
+        for line in self.commands:
+            sge_lines.append(line)
+
+        sge_lines.append("\n#Post Log")
+        # Post Log
+        for line in self.post_log:
+            sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(%s)\" >> %s" % (line, job_log_log_path))
+
+        if len(self.post_checksum) > 0:
+            sge_lines.append("\n#Checksum Output")
+            for path in self.post_checksum:
+                sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(md5sum `echo %s`)\" >> %s" % (path, job_md5_log_path))
+
+        # Shut down the venv
+        if self.venv is not None:
+            sge_lines.append("\ndeactivate")
+
+        return "\n".join(sge_lines)
+
+    def define(self, shard=None):
         raise NotImplementedError()
 
     def use_module(self, module_name):
@@ -95,97 +198,4 @@ class Job(object):
 
     def add_post_checksum(self, path):
         self.post_checksum.append(path)
-
-    def generate_sge(self, queue_list, mem_gb, time_hours, cores, manifest=None):
-
-        # Generate log name
-        log_path = "%s.%s.sunblock.log" % (self.template_name, datetime.now().strftime("%Y-%m-%d_%H%M"))
-        md5_path = "%s.%s.sunblock.md5" % (self.template_name, datetime.now().strftime("%Y-%m-%d_%H%M"))
-
-        if manifest and self.array:
-            manifest_path = "%s.%s.%s.sunblock.manifest" % (self.template_name, manifest, datetime.now().strftime("%Y-%m-%d_%H%M"))
-            #TODO ew :(
-            fo = open(manifest_path, "w")
-            fo.writelines("\n".join(s.strip() for s in self.array["values"]))
-            fo.close()
-
-        # Determine whether the job will be array-ed
-        n = 1
-        if self.array is not None:
-            n = self.array["n"]
-
-        # Build header
-        sge_lines = [
-            "#$ -S /bin/sh",
-            "#$ -j y",
-            "#$ -q %s" % ",".join(queue_list),
-            "#$ -l h_vmem=%dG" % mem_gb,
-            "#$ -l h_rt=%d:0:0" % time_hours,
-            "#$ -V",
-            "#$ -R y",
-            "#$ -t 1-%d" % n,
-        ]
-
-        if self.WORKING_DIR:
-            sge_lines.append("#$ -wd %s" % self.WORKING_DIR)
-        else:
-            sge_lines.append("#$ -cwd")
-
-        sge_lines.append("\n")
-
-        if cores > 1:
-            sge_lines.append("#$ -pe multithread %d" % cores)
-
-        sge_lines.append("CURR_i=$(expr $SGE_TASK_ID - 1)")
-
-        # Add array if defined
-        if self.array is not None:
-            #TODO throw error for empty array
-            for i, f in enumerate(self.array["values"]):
-                if i == 0:
-                    # Open array definition
-                    sge_lines.append("\n%s=(%s" % (self.array["name"], f.strip()))
-                else:
-                    sge_lines.append("\t%s" % f.strip())
-            sge_lines.append(")")
-            sge_lines.append("%s=${%s[$CURR_i]}" % (self.array["var"], self.array["name"]))
-
-        # Append modules
-        sge_lines.append("")
-        sge_lines += ["module add %s" % name for name in self.modules]
-
-        # Start venv if needed
-        if self.venv is not None:
-            sge_lines.append("source %s" % self.venv)
-
-        sge_lines.append("\n#Pre Commands")
-        # Pre Commands
-        for line in self.pre_commands:
-            sge_lines.append(line)
-
-        sge_lines.append("\n#Pre Log")
-        # Pre Logs
-        for line in self.pre_log:
-            sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(%s)\" >> %s" % (line, log_path))
-
-        sge_lines.append("\n#Commands")
-        # Commands
-        for line in self.commands:
-            sge_lines.append(line)
-
-        sge_lines.append("\n#Post Log")
-        # Post Log
-        for line in self.post_log:
-            sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(%s)\" >> %s" % (line, log_path))
-
-        if len(self.post_checksum) > 0:
-            sge_lines.append("\n#Checksum Output")
-            for path in self.post_checksum:
-                sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(md5sum `echo %s`)\" >> %s" % (path, md5_path))
-
-        # Shut down the venv
-        if self.venv is not None:
-            sge_lines.append("\ndeactivate")
-
-        return "\n".join(sge_lines)
 

@@ -28,29 +28,32 @@ class BLAST(job.Job):
 
         self.add_key("payload", "payload [-evalue 0.00001]", "payload [-evalue 0.00001]", str)
 
-    def execute(self):
-        def clean_database(path):
-            EXTENSIONS = [
-                "phr",
-                "pin",
-                "pog",
-                "psd",
-                "psi",
-                "psq",
-                "pal",
-                "udb",
-            ]
-            for ext in EXTENSIONS:
-                if path.endswith(ext):
-                    path = path.replace(ext, "")[0:-1]
-                    break
-            return path
+    def get_shards(self):
+        shards = []
 
         def pad_shard(i, padding):
             return ("{0:0%dd}" % padding).format(i)
 
-        # Remove file extension if necessary
         database = clean_database(self.config["database"]["value"])
+        if self.config["shards"]["value"] > 1:
+            for i in range(self.config["start"]["value"], self.config["start"]["value"] + self.config["shards"]["value"]):
+                curr_shard = {
+                    "database": database + self.config["delimiter"]["value"] + pad_shard(i, self.config["padding"]["value"]),
+                    "name": database + self.config["delimiter"]["value"] + pad_shard(i, self.config["padding"]["value"])
+                }
+                shards.append(curr_shard)
+        else:
+            curr_shard = {
+                "database": database,
+                "name": database
+            }
+            shards.append(curr_shard)
+
+        return shards
+
+    def define(self, shard=None):
+        # Remove file extension if necessary
+        database = self.clean_database(self.config["database"]["value"])
         if database != self.config["database"]["value"]:
             sys.stderr.write("[WARN] Invalid database path: '%s'\n" % args.database)
             sys.stderr.write("[WARN] Continuing assuming you want to remove the file extension.\n")
@@ -65,71 +68,38 @@ class BLAST(job.Job):
             sys.stderr.write("[FAIL] Database '%s' does not appear to exist.\n" % database)
             sys.exit(1)
 
-        sharded = False
-        if self.config["shards"]["value"] > 1:
-            sharded = True
+        self.use_module("BLAST/blast-2.2.28")
+        self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
+        #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(curr_shard) + "."+ self.config["queries_ext"]["value"])), "QUERY")
 
-        names = []
-        if sharded:
-            # Submit job
-            #TODO Check database exists
-            for i in range(self.config["start"]["value"], self.config["start"]["value"]+self.config["shards"]["value"]):
-                curr_shard = database + self.config["delimiter"]["value"] + pad_shard(i, self.config["padding"]["value"])
+        self.set_pre_commands([
+            "DB=`basename %s`" % shard["database"],
+            "OUTFILE=%s/`basename $QUERY .%s`.$DB.blast6.wip" % (self.config["outdir"]["value"], self.config["queries_ext"]["value"]),
+        ])
 
-                #TODO gross.
-                old_config = self.config.copy()
-                self = BLAST()
-                for key, conf in sorted(self.config.items(), key=lambda x: x[1]["order"]):
-                    self.set_key(key, old_config[key]["value"])
+        self.set_commands([
+            self.config["command"]["value"] + " -query $QUERY -db " + shard["database"] + " -out $OUTFILE -outfmt 6 -num_threads $NSLOTS " + self.config["payload"]["value"],
+            "mv $OUTFILE `echo $OUTFILE | sed 's/.wip$//'`",
+        ])
 
-                self.use_module("BLAST/blast-2.2.28")
-                self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
-                #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(curr_shard) + "."+ self.config["queries_ext"]["value"])), "QUERY")
+        self.add_pre_log_line("echo $QUERY \"%s\" `echo $OUTFILE | sed 's/.wip$//'`" % shard["database"])
+        self.add_post_log_line("md5sum `echo $OUTFILE | sed 's/.wip$//'`")
+        self.add_post_checksum("$OUTFILE | sed 's/.wip$//'")
 
+    def clean_database(path):
+        EXTENSIONS = [
+            "phr",
+            "pin",
+            "pog",
+            "psd",
+            "psi",
+            "psq",
+            "pal",
+            "udb",
+        ]
+        for ext in EXTENSIONS:
+            if path.endswith(ext):
+                path = path.replace(ext, "")[0:-1]
+                break
+        return path
 
-                self.set_pre_commands([
-                    "DB=`basename %s`" % curr_shard,
-                    "OUTFILE=%s/`basename $QUERY .%s`.$DB.blast6.wip" % (self.config["outdir"]["value"], self.config["queries_ext"]["value"]),
-                ])
-
-                self.set_commands([
-                    self.config["command"]["value"] + " -query $QUERY -db " + curr_shard + " -out $OUTFILE -outfmt 6 -num_threads $NSLOTS " + self.config["payload"]["value"],
-                    "mv $OUTFILE `echo $OUTFILE | sed 's/.wip$//'`",
-                ])
-
-                self.add_pre_log_line("echo $QUERY \"%s\" `echo $OUTFILE | sed 's/.wip$//'`" % curr_shard)
-                self.add_post_log_line("md5sum `echo $OUTFILE | sed 's/.wip$//'`")
-                self.add_post_checksum("$OUTFILE | sed 's/.wip$//'")
-
-                desc = "%s-%s" % (os.path.basename(self.config["queries_dir"]["value"]), os.path.basename(curr_shard))
-                fname = "%s.%s.%s.sunblock.sge" % (self.template_name, desc, datetime.now().strftime("%Y-%m-%d_%H%M"))
-                fo = open(fname, "w")
-                fo.writelines(self.generate_sge(["large.q", "amd.q", "intel.q"], 1, 18, 1))
-                fo.close()
-                names.append(fname)
-        else:
-            self.use_module("BLAST/blast-2.2.28")
-            #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(database) + "."+ self.config["queries_ext"]["value"])), "QUERY")
-            self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
-
-            self.set_pre_commands([
-                "DB=`basename %s`" % database,
-                "OUTFILE=%s/`basename $QUERY .%s`.$DB.blast6.wip" % (self.config["outdir"]["value"], self.config["queries_ext"]["value"]),
-            ])
-
-            self.set_commands([
-                self.config["command"]["value"] + " -query $QUERY -db " + database + " -out $OUTFILE -outfmt 6 -num_threads $NSLOTS " + self.config["payload"]["value"],
-                "mv $OUTFILE `echo $OUTFILE | sed 's/.wip$//'`",
-            ])
-
-            self.add_pre_log_line("echo $QUERY \"%s\" `echo $OUTFILE | sed 's/.wip$//'`" % database)
-            self.add_post_log_line("md5sum `echo $OUTFILE | sed 's/.wip$//'`")
-            self.add_post_checksum("$OUTFILE | sed 's/.wip$//'")
-
-            desc = "%s-%s" % (os.path.basename(self.config["queries_dir"]["value"]), os.path.basename(database))
-            fname = "%s.%s.%s.sunblock.sge" % (self.template_name, desc, datetime.now().strftime("%Y-%m-%d_%H%M"))
-            fo = open(fname, "w")
-            fo.writelines(self.generate_sge(["large.q", "amd.q", "intel.q"], 1, 18, 1))
-            fo.close()
-            names.append(fname)
-        return names

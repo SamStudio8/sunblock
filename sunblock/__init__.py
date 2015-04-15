@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import os
 import sys
 import time
 
@@ -13,7 +14,7 @@ import sunblock.util as util
 #TODO View output directory
 #TODO Check .md5 file for output files
 #TODO Email
-#TODO Manifest files?
+#TODO Delete/hide jobs
 @click.group()
 def cli():
     pass
@@ -45,9 +46,24 @@ def init(template):
     out_fh.write(json.dumps(to_write))
     out_fh.close()
 
+@cli.command(help="Resubmit a previous job")
+@click.argument("job_id", type=int)
+def resub(job_id):
+    jobs = util.get_job_list()
+    if not jobs:
+        print("No jobs found.")
+        sys.exit(0)
+
+    try:
+        job = jobs[job_id]
+    except IndexError:
+        print("Job with that id does not exist.")
+        sys.exit(1)
+
 @cli.command(help="Execute a configured job")
 @click.argument('config', type=click.Path(exists=True, readable=True))
-def execute(config):
+@click.option("--dry", is_flag=True)
+def execute(config, dry):
 
     # Open
     in_fh = open(config)
@@ -65,46 +81,145 @@ def execute(config):
         log.error("Invalid job configuration. Aborting.")
         sys.exit(1)
 
-    script_names = job.execute()
-    if len(script_names) == 0:
-        print("[WARN] No script names returned by config.")
-    else:
-        new_record = {
-            "njobs": 0,
-            "tjobs": 0,
-            "jobs": [],
-            "timestamp": int(time.mktime(datetime.now().timetuple())),
-            "template": job.template_name
-        }
+    # Name the job...
+    #TODO Make it filepath friendly...
+    #TODO Force resolving of working dir
+    job_name = click.prompt("Job Name")
+    job_working_dir = click.prompt("Working Dir [default: .]", type=click.Path(exists=True, writable=True))
+    if job_working_dir == ".":
+        job_working_dir = None
 
-        from subprocess import check_output
-        for name in script_names:
-            p = check_output(['qsub', '-terse', name])
+    #FUTURE Abstract SGE specific behaviour...
+    #       Job types will specify a "prompt_user" to capture additional
+    #       metadata required by the particular scheduler of choice.
+    #       We'll do that here for now because ffs I just want to do my job.
+    queue_list = [q.strip() for q in click.prompt("Queue List [comma delimited]", default="large.q,amd.q,intel.q").strip().split(",")]
+    mem_gb = click.prompt("Memory (GB)", type=int)
+    time_hours = click.prompt("Time (Hours)", type=int)
+    cores = click.prompt("Slots (PE Cores)", type=int)
 
-            try:
-                jid, trange = p.strip().split(".")
-            except ValueError:
-                jid = p.strip()
-                trange = None
-            ts = 1
-            te = 1
+    # Get sunblock_id and create a directory
+    #FUTURE Create soft links to output directory?
+    job_basepath = os.path.join(util.get_sunblock_path(), job_name)
 
-            if trange:
-                ts, te = trange.split(":")[0].split("-")
+    now = datetime.now()
+    job_queue = []
+    job_scripts = []
 
-            new_record["jobs"].append({
-                "jid": int(jid),
-                "t_start": int(ts),
-                "t_end": int(te),
-                "script_path": name
-            })
-            new_record["njobs"] += 1
-            new_record["tjobs"] += int(te)
+    for shard in job.get_shards():
+        #TODO gross.
+        # Re-load
+        job = util.get_template_list()[config["template"]]()
+        for key, conf in sorted(job.config.items(), key=lambda x: x[1]["order"]):
+            job.set_key(key, config[key])
+        job.name = job_name
+        job.shard = shard
+        job.WORKING_DIR = job_working_dir
 
-        if not util.append_job_list(new_record):
-            print("Error appending to sunblock record file.")
+        job_prefix = "%s__%s__%s" % (job.template_name, job_name, now.strftime("%Y-%m-%d_%H%M"))
+
+        job.define(shard=shard)
+
+        job_queue.append(job)
+        job_scripts.append(job.prepare(job_prefix, job_basepath, queue_list, mem_gb, time_hours, cores))
+
+    # All jobs prepared ok, write the files
+    #TODO Check dir doesn't already exist...
+    os.mkdir(job_basepath)
+    job_stdeo_path = os.path.join(job_basepath, "stdeo")
+    job_config_path = os.path.join(job_basepath, "config")
+    job_script_path = os.path.join(job_basepath, "script")
+    job_log_path = os.path.join(job_basepath, "log")
+    os.makedirs(job_stdeo_path)
+    os.makedirs(job_config_path)
+    os.makedirs(job_script_path)
+    os.makedirs(job_log_path)
+
+    # "Move" config
+    job_config_config_path = os.path.join(job_config_path, job_prefix + ".conf")
+    to_write = {}
+    for key, conf in job.config.items():
+        to_write[key] = conf["value"]
+    out_fh = open(job_config_config_path, "w")
+    out_fh.write(json.dumps(to_write))
+    out_fh.close()
+
+    # Write manifests
+    for job in job_queue:
+        #TODO ew :(
+        manifest_shard = ""
+        if job.array:
+            if job.shard:
+                #TODO Assumes name key...
+                manifest_shard = "." + job.shard["name"]
+            job_manifest_script_path = os.path.join(job_script_path, job_prefix + "%s.manifest" % manifest_shard)
+
+            fo = open(job_manifest_script_path, "w")
+            fo.writelines("\n".join(v.strip() for v in job.array["values"]))
+            fo.close()
+
+    # Write scripts
+    script_paths = []
+    if not dry:
+        for i, job in enumerate(job_queue):
+            manifest_shard = ""
+            if job.array:
+                if job.shard:
+                    #TODO Assumes name key...
+                    try:
+                        manifest_shard = "." + job.shard["name"]
+                    except:
+                        pass
+
+            job_script_script_path = os.path.join(job_script_path, job_prefix + "%s.sge" % manifest_shard)
+
+            fo = open(job_script_script_path, "w")
+            fo.writelines(job_scripts[i])
+            fo.close()
+
+            script_paths.append(job_script_script_path)
+
+    # QSUB
+    if not dry:
+        if len(script_paths) == 0:
+            print("[WARN] No script names returned by config.")
         else:
-            print("Submitted %d job arrays, totalling %d jobs." % (new_record["njobs"], new_record["tjobs"]))
+            new_record = {
+                "njobs": 0,
+                "tjobs": 0,
+                "jobs": [],
+                "timestamp": int(time.mktime(datetime.now().timetuple())),
+                "template": job.template_name
+            }
+
+            from subprocess import check_output
+            for name in script_paths:
+                p = check_output(['qsub', '-terse', name])
+
+                try:
+                    jid, trange = p.strip().split(".")
+                except ValueError:
+                    jid = p.strip()
+                    trange = None
+                ts = 1
+                te = 1
+
+                if trange:
+                    ts, te = trange.split(":")[0].split("-")
+
+                new_record["jobs"].append({
+                    "jid": int(jid),
+                    "t_start": int(ts),
+                    "t_end": int(te),
+                    "script_path": name
+                })
+                new_record["njobs"] += 1
+                new_record["tjobs"] += int(te)
+
+            if not util.append_job_list(new_record):
+                print("Error appending to sunblock record file.")
+            else:
+                print("Submitted %d job arrays, totalling %d jobs." % (new_record["njobs"], new_record["tjobs"]))
 
 @cli.command(help="List available templates")
 def templates():
