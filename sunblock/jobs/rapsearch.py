@@ -13,7 +13,7 @@ class RAPSearch(job.Job):
         super(RAPSearch, self).__init__()
         self.template_name = "rapsearch"
 
-        self.add_key("queries_dir", "QDIR", "QDIR", Path(exists=True, readable=True, dir_okay=True, resolve_path=True))
+        self.add_key("queries_dir", "QDIR", "QDIR", Path(exists=True, readable=True, file_okay=True, dir_okay=True, resolve_path=True))
         self.add_key("queries_ext", "QEXT", "QEXT", str)
         self.add_key("outdir", "outdir", "outdir", Path(exists=True, dir_okay=True, writable=True, resolve_path=True))
 
@@ -64,10 +64,12 @@ class RAPSearch(job.Job):
             sys.exit(1)
 
         self.use_module("RAPSearch/2.22")
-        self.WORKING_DIR = self.config["outdir"]["value"]
-        self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
-        #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(curr_shard) + "."+ self.config["queries_ext"]["value"])), "QUERY")
 
+        if os.path.isfile(self.config["queries_dir"]["value"]):
+            self.add_array("queries", [self.config["queries_dir"]["value"]], "QUERY")
+        else:
+            self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*." + self.config["queries_ext"]["value"])), "QUERY")
+            #self.add_array("queries", sorted(glob.glob(self.config["queries_dir"]["value"] + "/*" + os.path.basename(curr_shard) + "."+ self.config["queries_ext"]["value"])), "QUERY")
 
         self.set_pre_commands([
             "DB=`basename %s`" % shard["database"],
@@ -75,7 +77,7 @@ class RAPSearch(job.Job):
         ])
 
         self.set_commands([
-            "rapsearch -q $QUERY -d " + shard["database"] + " -o $OUTFILE -z 5 " + self.config["payload"]["value"],
+            "rapsearch -q $QUERY -d " + shard["database"] + " -u 1 -z 5 " + self.config["payload"]["value"] + " > $OUTFILE",
             "mv $OUTFILE `echo $OUTFILE | sed 's/.wip$//'`",
         ])
 

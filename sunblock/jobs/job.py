@@ -29,6 +29,7 @@ class Job(object):
         self.WORKING_DIR = None
 
         self.shard = None
+        self.prefix = None
 
     #TODO Switch to OrderedDict
     def add_key(self, name, desc, prompt, type, validate=None):

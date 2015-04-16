@@ -34,18 +34,18 @@ class BLAST(job.Job):
         def pad_shard(i, padding):
             return ("{0:0%dd}" % padding).format(i)
 
-        database = clean_database(self.config["database"]["value"])
+        database = self.clean_database(self.config["database"]["value"])
         if self.config["shards"]["value"] > 1:
             for i in range(self.config["start"]["value"], self.config["start"]["value"] + self.config["shards"]["value"]):
                 curr_shard = {
                     "database": database + self.config["delimiter"]["value"] + pad_shard(i, self.config["padding"]["value"]),
-                    "name": database + self.config["delimiter"]["value"] + pad_shard(i, self.config["padding"]["value"])
+                    "name": os.path.basename(database + self.config["delimiter"]["value"] + pad_shard(i, self.config["padding"]["value"]))
                 }
                 shards.append(curr_shard)
         else:
             curr_shard = {
                 "database": database,
-                "name": database
+                "name": os.path.basename(database)
             }
             shards.append(curr_shard)
 
@@ -86,7 +86,7 @@ class BLAST(job.Job):
         self.add_post_log_line("md5sum `echo $OUTFILE | sed 's/.wip$//'`")
         self.add_post_checksum("$OUTFILE | sed 's/.wip$//'")
 
-    def clean_database(path):
+    def clean_database(self, path):
         EXTENSIONS = [
             "phr",
             "pin",

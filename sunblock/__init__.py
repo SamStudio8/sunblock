@@ -1,4 +1,5 @@
 from datetime import datetime
+import glob
 import json
 import os
 import sys
@@ -15,6 +16,8 @@ import sunblock.util as util
 #TODO Check .md5 file for output files
 #TODO Email
 #TODO Delete/hide jobs
+#TODO Add basepath and job prefix to sdb
+#TODO Cancel jobs (ie. kill all SGE jobs related to a sunblock id)
 @click.group()
 def cli():
     pass
@@ -46,19 +49,178 @@ def init(template):
     out_fh.write(json.dumps(to_write))
     out_fh.close()
 
-@cli.command(help="Resubmit a previous job")
-@click.argument("job_id", type=int)
-def resub(job_id):
+@cli.command(help="Resubmit jobs (or a subset of their tasks)")
+@click.argument("tasks")
+@click.option("--dry")
+def resub(tasks, dry):
+
     jobs = util.get_job_list()
     if not jobs:
         print("No jobs found.")
         sys.exit(0)
 
-    try:
-        job = jobs[job_id]
-    except IndexError:
-        print("Job with that id does not exist.")
-        sys.exit(1)
+    # Parse task string
+    to_resub = {}
+    ranges = tasks.strip().split(",")
+    n = 0
+    for r in ranges:
+        if ":" in r :
+            jid = int(r.split(":")[0])
+            tids = r.split(":")[1]
+
+            for tid_range in tids.split(","):
+                if "-" in tid_range:
+                    start = int(tid_range.split("-")[0])
+                    end = int(tid_range.split("-")[1])
+                else:
+                    start = end = int(tid_range)
+
+                if jid not in to_resub:
+                    to_resub[jid] = []
+                to_resub[jid].extend(range(start, end + 1))
+                print to_resub
+                n += (end - start + 1)
+        else:
+            to_resub[int(r)] = []
+            start = end = int(r)
+            n += (end - start + 1)
+
+    queue_list = [q.strip() for q in click.prompt("Queue List [comma delimited]", default="large.q,amd.q,intel.q").strip().split(",")]
+    mem_gb = click.prompt("Memory (GB)", type=int)
+    time_hours = click.prompt("Time (Hours)", type=int)
+    cores = click.prompt("Slots (PE Cores)", type=int)
+    script_paths = []
+    now = datetime.now()
+
+    # Collect jids
+    for i, job in enumerate(jobs):
+        for j, subjob in enumerate(job["jobs"]):
+
+            if subjob["jid"] in to_resub:
+                # Get manifest
+                #TODO This is quite a horrible hack to get the manifest file from the script
+                manifest = []
+                with open(subjob["script_path"][:-4] + ".manifest") as manifest_fh:
+                    for i, line in enumerate(manifest_fh):
+                        tid = i + 1
+                        fpath = line.strip()
+                        if len(to_resub[subjob["jid"]]) == 0:
+                            manifest.append(fpath)
+                        else:
+                            if tid in to_resub[subjob["jid"]]:
+                                manifest.append(fpath)
+
+                #TODO Also pretty terrible
+                job_prefix = os.path.basename(glob.glob(subjob["script_path"].split("/script/")[0] + "/log/*.log")[0])[:-4]
+                job_basepath = subjob["script_path"].split("/script/")[0]
+                job_stdeo_path = os.path.join(job_basepath, "stdeo")
+                job_config_path = os.path.join(job_basepath, "config")
+                job_script_path = os.path.join(job_basepath, "script")
+                job_log_path = os.path.join(job_basepath, "log")
+                job_conf = subjob["script_path"].split("/script/")[0] + "/config/" + job_prefix + ".conf"
+                with open(job_conf) as conf_fh:
+                    config = json.loads(conf_fh.read())
+
+                    re_job = util.get_template_list()[job["template"]]()
+                    for key, conf in sorted(re_job.config.items(), key=lambda x: x[1]["order"]):
+                        re_job.set_key(key, config[key])
+
+                    #TODO THIS IS THE WORST OF ALL
+                    shard = re_job.get_shards()[j]
+                    re_job.shard = shard
+                    re_job.define(shard=shard)
+
+                    #TODO Are we going to just store conf/manifest of rsub seperately?
+                    re_job_prefix = "%s__RSUB__%s" % (job_prefix, now.strftime("%Y-%m-%d_%H%M"))
+                    re_job_dt = "RSUB__%s" % (now.strftime("%Y-%m-%d_%H%M"))
+
+                    # Now override the array
+                    re_job.array["values"] = manifest
+                    re_job.array["n"] = len(manifest)
+
+                    job_script = (re_job.prepare(job_prefix, job_basepath, queue_list, mem_gb, time_hours, cores))
+
+
+                    # New config
+                    job_config_config_path = os.path.join(job_config_path, re_job_prefix + ".conf")
+                    to_write = {"template": config["template"]}
+                    for key, conf in re_job.config.items():
+                        to_write[key] = conf["value"]
+                    out_fh = open(job_config_config_path, "w")
+                    out_fh.write(json.dumps(to_write))
+                    out_fh.close()
+
+                    # New Manifest
+                    #TODO ew :(
+                    manifest_shard = ""
+                    if re_job.array:
+                        if re_job.shard:
+                            #TODO Assumes name key...
+                            manifest_shard = "." + re_job.shard["name"]
+                        job_manifest_script_path = os.path.join(job_script_path, job_prefix + "%s.%s.manifest" % (manifest_shard, re_job_dt))
+                        fo = open(job_manifest_script_path, "w")
+                        fo.writelines("\n".join(v.strip() for v in re_job.array["values"]))
+                        fo.close()
+
+                    # Write script
+                    manifest_shard = ""
+                    if re_job.array:
+                        if re_job.shard:
+                            #TODO Assumes name key...
+                            try:
+                                manifest_shard = "." + re_job.shard["name"]
+                            except:
+                                pass
+
+                    job_script_script_path = os.path.join(job_script_path, job_prefix + "%s.%s.sge" % (manifest_shard, re_job_dt))
+
+                    fo = open(job_script_script_path, "w")
+                    fo.writelines(job_script)
+                    fo.close()
+
+                    script_paths.append(job_script_script_path)
+
+    if not dry:
+        if len(script_paths) == 0:
+            print("[WARN] No script names returned by config.")
+        else:
+            new_record = {
+                "njobs": 0,
+                "tjobs": 0,
+                "jobs": [],
+                "timestamp": int(time.mktime(datetime.now().timetuple())),
+                "template": re_job.template_name,
+                "prefix": re_job_prefix,
+            }
+
+            from subprocess import check_output
+            for name in script_paths:
+                p = check_output(['qsub', '-terse', name])
+
+                try:
+                    jid, trange = p.strip().split(".")
+                except ValueError:
+                    jid = p.strip()
+                    trange = None
+                ts = 1
+                te = 1
+
+                if trange:
+                    ts, te = trange.split(":")[0].split("-")
+
+                new_record["jobs"].append({
+                    "jid": int(jid),
+                    "t_start": int(ts),
+                    "t_end": int(te),
+                    "script_path": name
+                })
+                new_record["njobs"] += 1
+                new_record["tjobs"] += int(te)
+
+            if not util.append_job_list(new_record):
+                print("Error appending to sunblock record file.")
+            else:
+                print("Submitted %d job arrays, totalling %d jobs." % (new_record["njobs"], new_record["tjobs"]))
 
 @cli.command(help="Execute a configured job")
 @click.argument('config', type=click.Path(exists=True, readable=True))
@@ -117,6 +279,7 @@ def execute(config, dry):
         job.WORKING_DIR = job_working_dir
 
         job_prefix = "%s__%s__%s" % (job.template_name, job_name, now.strftime("%Y-%m-%d_%H%M"))
+        job.prefix = job_prefix
 
         job.define(shard=shard)
 
@@ -137,7 +300,7 @@ def execute(config, dry):
 
     # "Move" config
     job_config_config_path = os.path.join(job_config_path, job_prefix + ".conf")
-    to_write = {}
+    to_write = {"template": config["template"]}
     for key, conf in job.config.items():
         to_write[key] = conf["value"]
     out_fh = open(job_config_config_path, "w")
@@ -189,7 +352,8 @@ def execute(config, dry):
                 "tjobs": 0,
                 "jobs": [],
                 "timestamp": int(time.mktime(datetime.now().timetuple())),
-                "template": job.template_name
+                "template": job.template_name,
+                "prefix": job.prefix,
             }
 
             from subprocess import check_output
