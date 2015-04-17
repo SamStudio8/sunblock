@@ -100,12 +100,23 @@ class Job(object):
         else:
             sge_lines.append("#$ -cwd")
 
-        sge_lines.append("\n")
-
         if cores > 1:
             sge_lines.append("#$ -pe multithread %d" % cores)
 
-        sge_lines.append("CURR_i=$(expr $SGE_TASK_ID - 1)")
+        sge_lines.append("")
+
+        # Housekeeping
+        #TODO Flag for enabling core dumps
+        sge_lines.append("# Housekeeping")
+        sge_lines.append("# * Abort on unit variable")
+        sge_lines.append("set -u")
+        sge_lines.append("# * Abort on non-zero")
+        sge_lines.append("set -e")
+        sge_lines.append("# * Disable core dumps")
+        sge_lines.append("ulimit -c 0")
+        sge_lines.append("")
+
+        sge_lines.append("CURR_i=$(($SGE_TASK_ID - 1))")
 
         # Add array if defined
         if self.array is not None:
