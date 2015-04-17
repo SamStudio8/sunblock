@@ -18,6 +18,16 @@ import sunblock.util as util
 #TODO Delete/hide jobs
 #TODO Add basepath and job prefix to sdb
 #TODO Cancel jobs (ie. kill all SGE jobs related to a sunblock id)
+#     * Offer to remove output dir
+#TODO Store job meta
+#TODO Remove manifest name from SGE logs, makes it harder to grep - or make sunblock look for you?
+#TODO We're going to need to start caching SGE data:
+#   a) To stop wasting time fetching it
+#   b) Because it goes away
+#   - Update cache on every command?
+#   - Update cache via CRON (and force update when calling jobs/summary/execute
+#   - Force jobs to report back their status somehow -- probably unworkable in the long run
+#   * We should store a map of sge+jid>sun+jid
 @click.group()
 def cli():
     pass
@@ -85,6 +95,9 @@ def resub(tasks, dry):
             start = end = int(r)
             n += (end - start + 1)
 
+    job_working_dir = click.prompt("Working Dir [default: .]", type=click.Path(exists=True, writable=True))
+    if job_working_dir == ".":
+        job_working_dir = None
     queue_list = [q.strip() for q in click.prompt("Queue List [comma delimited]", default="large.q,amd.q,intel.q").strip().split(",")]
     mem_gb = click.prompt("Memory (GB)", type=int)
     time_hours = click.prompt("Time (Hours)", type=int)
@@ -129,6 +142,7 @@ def resub(tasks, dry):
                     shard = re_job.get_shards()[j]
                     re_job.shard = shard
                     re_job.define(shard=shard)
+                    re_job.WORKING_DIR = job_working_dir
 
                     #TODO Are we going to just store conf/manifest of rsub seperately?
                     re_job_prefix = "%s__RSUB__%s" % (job_prefix, now.strftime("%Y-%m-%d_%H%M"))
@@ -191,6 +205,7 @@ def resub(tasks, dry):
                 "timestamp": int(time.mktime(datetime.now().timetuple())),
                 "template": re_job.template_name,
                 "prefix": re_job_prefix,
+                "working_dir": re_job.WORKING_DIR,
             }
 
             from subprocess import check_output
@@ -354,6 +369,7 @@ def execute(config, dry):
                 "timestamp": int(time.mktime(datetime.now().timetuple())),
                 "template": job.template_name,
                 "prefix": job.prefix,
+                "working_dir": job.WORKING_DIR,
             }
 
             from subprocess import check_output
