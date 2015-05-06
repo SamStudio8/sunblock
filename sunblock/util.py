@@ -7,6 +7,8 @@ import sys
 from sunblock.jobs import (
         blast,
         blast2gff,
+        filtergff,
+        addgffinfo,
         helloworld,
         rapsearch,
 )
@@ -15,6 +17,8 @@ def get_template_list():
     return {
         "blast": blast.BLAST,
         "blast2gff": blast2gff.BLAST2GFF,
+        "filtergff": filtergff.FilterGFF,
+        "addgffinfo": addgffinfo.AddGFFInfo,
         "helloworld": helloworld.HelloWorld,
         "rapsearch": rapsearch.RAPSearch,
     }

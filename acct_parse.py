@@ -213,7 +213,8 @@ class Account(object):
         """
 
         mem_req = (job_dict["category"]["req_l"]["h_vmem"]/1024)
-        mem_req_tot = mem_req * job_dict["slots"]
+        #mem_req_tot = mem_req * job_dict["slots"]
+        mem_req_tot = mem_req
         mem_used = (job_dict["maxvmem"]/1000000000)*0.931323
         mem_diff = mem_req_tot - mem_used
 

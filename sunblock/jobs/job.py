@@ -27,6 +27,8 @@ class Job(object):
 
         self.LIMIT = []
         self.WORKING_DIR = None
+        self.FORWARD_ENV = False
+        self.IGNORE_UNSET = False
 
         self.shard = None
         self.prefix = None
@@ -94,22 +96,38 @@ class Job(object):
             "#$ -j y",
         ]
 
-        if self.WORKING_DIR:
-            sge_lines.append("#$ -wd %s" % self.WORKING_DIR)
-            sge_lines.append("OUTDIR=%s" % self.WORKING_DIR)
-        else:
-            sge_lines.append("#$ -cwd")
+        if self.FORWARD_ENV:
+            sge_lines.append("#$ -V")
 
         if cores > 1:
             sge_lines.append("#$ -pe multithread %d" % cores)
 
         sge_lines.append("")
 
+        if self.WORKING_DIR:
+            sge_lines.append("#$ -wd %s" % self.WORKING_DIR)
+            sge_lines.append("OUTDIR=%s" % self.WORKING_DIR)
+        else:
+            sge_lines.append("#$ -cwd")
+            sge_lines.append("OUTDIR=`pwd -P`")
+
+        sge_lines.append("")
+
+        # Append modules
+        sge_lines.append("# Modules and venvs")
+        sge_lines.append("")
+        sge_lines += ["module add %s" % name for name in self.modules]
+
+        # Start venv if needed
+        if self.venv is not None:
+            sge_lines.append("source %s" % self.venv)
+
         # Housekeeping
         #TODO Flag for enabling core dumps
         sge_lines.append("# Housekeeping")
-        sge_lines.append("# * Abort on unit variable")
-        sge_lines.append("set -u")
+        if not self.IGNORE_UNSET:
+            sge_lines.append("# * Abort on unset variable")
+            sge_lines.append("set -u")
         sge_lines.append("# * Abort on non-zero")
         sge_lines.append("set -e")
         sge_lines.append("# * Disable core dumps")
@@ -129,14 +147,6 @@ class Job(object):
                     sge_lines.append("\t%s" % f.strip())
             sge_lines.append(")")
             sge_lines.append("%s=${%s[$CURR_i]}" % (self.array["var"], self.array["name"]))
-
-        # Append modules
-        sge_lines.append("")
-        sge_lines += ["module add %s" % name for name in self.modules]
-
-        # Start venv if needed
-        if self.venv is not None:
-            sge_lines.append("source %s" % self.venv)
 
         sge_lines.append("\n#Pre Commands")
         # Pre Commands

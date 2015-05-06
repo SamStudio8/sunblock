@@ -25,6 +25,8 @@ class RAPSearch(job.Job):
         self.add_key("start", "shard start [0]", "shard start [0]", int)
         self.add_key("padding", "shard pad [0]", "shard pad [0]", int)
 
+        #self.add_key("threads", "threads [1]", "threads [1]", int)
+
         self.add_key("payload", "payload [-evalue 0.00001]", "payload [-e 0.00001]", str)
 
     def get_shards(self):
@@ -77,8 +79,11 @@ class RAPSearch(job.Job):
         ])
 
         self.set_commands([
-            "rapsearch -q $QUERY -d " + shard["database"] + " -u 1 -z 5 " + self.config["payload"]["value"] + " > $OUTFILE",
-            "mv $OUTFILE `echo $OUTFILE | sed 's/.wip$//'`",
+            #"rapsearch -q $QUERY -d " + shard["database"] + " -u 1 -z " + self.config["threads"]["value"] + " " + self.config["payload"]["value"] + " > $OUTFILE",
+            #"rapsearch -q $QUERY -d " + shard["database"] + " -u 1 -z 8 " + self.config["payload"]["value"] + " > $OUTFILE",
+            "rapsearch -q $QUERY -d " + shard["database"] + " -z 8 " + self.config["payload"]["value"] + " -o $OUTFILE",
+            "mv $OUTFILE.m8 `echo $OUTFILE | sed 's/.wip$//'`",
+            "rm $OUTFILE.aln",
         ])
 
         self.add_pre_log_line("echo $QUERY \"%s\" `echo $OUTFILE | sed 's/.wip$//'`" % shard["database"])

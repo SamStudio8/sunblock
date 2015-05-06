@@ -10,7 +10,11 @@ from zenlog import log
 
 import sunblock.util as util
 
+#TODO For the love of god make RSUB less awful
+#TODO Make pipelines repeatable? Job X follows Y or something. Be able to generate reports...
+#     "add-labbook limpet job 7"
 #TODO Name job.out something less stupid
+#     ..put them somewhere useful, a staging area of ~/sunblock?
 #TODO View SGE file
 #TODO View output directory
 #TODO Check .md5 file for output files
@@ -28,6 +32,8 @@ import sunblock.util as util
 #   - Update cache via CRON (and force update when calling jobs/summary/execute
 #   - Force jobs to report back their status somehow -- probably unworkable in the long run
 #   * We should store a map of sge+jid>sun+jid
+#TODO How to pass job-specific requirements to a job-class (ie. #threads == multicores)
+#TODO Mark RSUB jobs as RSUB, when RSUBbing an RSUB, cascade back to origin
 @click.group()
 def cli():
     pass
@@ -124,7 +130,7 @@ def resub(tasks, dry):
                                 manifest.append(fpath)
 
                 #TODO Also pretty terrible
-                job_prefix = os.path.basename(glob.glob(subjob["script_path"].split("/script/")[0] + "/log/*.log")[0])[:-4]
+                job_prefix = job["prefix"]
                 job_basepath = subjob["script_path"].split("/script/")[0]
                 job_stdeo_path = os.path.join(job_basepath, "stdeo")
                 job_config_path = os.path.join(job_basepath, "config")
@@ -370,6 +376,7 @@ def execute(config, dry):
                 "template": job.template_name,
                 "prefix": job.prefix,
                 "working_dir": job.WORKING_DIR,
+                "name": job_name
             }
 
             from subprocess import check_output
@@ -496,7 +503,7 @@ def jobs(job_id, type, acct_path, format, expand, noisy, failed):
 
     for i in job_statii:
         if type.lower() == "summary":
-            print("%d\t%s" % (i, jobs[i]["template"]))
+            print("%d\t%s: %s" % (i, jobs[i]["template"], jobs[i].get("name", "untitled")))
             if expand:
                 for j, jid in enumerate(job_statii[i]["subjobs"]):
                     pc = float(job_statii[i]["subjobs"][jid]["found"]) / jobs[i]["jobs"][j]["t_end"]
