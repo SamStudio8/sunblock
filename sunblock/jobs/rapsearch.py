@@ -81,9 +81,8 @@ class RAPSearch(job.Job):
         self.set_commands([
             #"rapsearch -q $QUERY -d " + shard["database"] + " -u 1 -z " + self.config["threads"]["value"] + " " + self.config["payload"]["value"] + " > $OUTFILE",
             #"rapsearch -q $QUERY -d " + shard["database"] + " -u 1 -z 8 " + self.config["payload"]["value"] + " > $OUTFILE",
-            "rapsearch -q $QUERY -d " + shard["database"] + " -z 8 " + self.config["payload"]["value"] + " -o $OUTFILE",
+            "rapsearch -q $QUERY -d " + shard["database"] + " -z 8 -b 0" + self.config["payload"]["value"] + " -o $OUTFILE",
             "mv $OUTFILE.m8 `echo $OUTFILE | sed 's/.wip$//'`",
-            "rm $OUTFILE.aln",
         ])
 
         self.add_pre_log_line("echo $QUERY \"%s\" `echo $OUTFILE | sed 's/.wip$//'`" % shard["database"])
