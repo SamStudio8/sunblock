@@ -11,6 +11,9 @@ from sunblock.jobs import (
         addgffinfo,
         helloworld,
         rapsearch,
+        faidx,
+        samtools_sort,
+        samtools_index,
 )
 
 def get_template_list():
@@ -21,6 +24,9 @@ def get_template_list():
         "addgffinfo": addgffinfo.AddGFFInfo,
         "helloworld": helloworld.HelloWorld,
         "rapsearch": rapsearch.RAPSearch,
+        "indexfa": faidx.IndexFA,
+        "samtools-sort": samtools_sort.SAMToolsSort,
+        "samtools-index": samtools_index.SAMToolsIndex,
     }
 
 def get_job_list():

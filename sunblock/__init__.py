@@ -119,15 +119,19 @@ def resub(tasks, dry):
                 # Get manifest
                 #TODO This is quite a horrible hack to get the manifest file from the script
                 manifest = []
-                with open(subjob["script_path"][:-4] + ".manifest") as manifest_fh:
-                    for i, line in enumerate(manifest_fh):
-                        tid = i + 1
-                        fpath = line.strip()
-                        if len(to_resub[subjob["jid"]]) == 0:
-                            manifest.append(fpath)
-                        else:
-                            if tid in to_resub[subjob["jid"]]:
+                try:
+                    with open(subjob["script_path"][:-4] + ".manifest") as manifest_fh:
+                        for i, line in enumerate(manifest_fh):
+                            tid = i + 1
+                            fpath = line.strip()
+                            if len(to_resub[subjob["jid"]]) == 0:
                                 manifest.append(fpath)
+                            else:
+                                if tid in to_resub[subjob["jid"]]:
+                                    manifest.append(fpath)
+                except:
+                    # No manifest, probably.
+                    pass
 
                 #TODO Also pretty terrible
                 job_prefix = job["prefix"]

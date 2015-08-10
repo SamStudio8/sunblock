@@ -1,4 +1,5 @@
 import glob
+import os
 import sys
 
 from click import Path
@@ -18,7 +19,10 @@ class FilterGFF(job.Job):
 
     def define(self, shard=None):
         self.use_venv("/ibers/ernie/groups/rumenISPG/mgkit/venv/bin/activate")
-        self.add_array("queries", sorted(glob.glob(self.config["directory"]["value"] + "/*.gff")), "QUERY")
+        if os.path.isfile(self.config["directory"]["value"]):
+            self.add_array("queries", [self.config["directory"]["value"]], "QUERY")
+        else:
+            self.add_array("queries", sorted(glob.glob(self.config["directory"]["value"] + "/*.gff")), "QUERY")
 
         self.set_pre_commands([
             "OUTFILE=$OUTDIR/`basename $QUERY .gff`.filtered.gff.wip",

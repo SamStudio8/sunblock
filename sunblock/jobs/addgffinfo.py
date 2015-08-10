@@ -1,7 +1,8 @@
 import glob
+import os
 import sys
 
-from click import Path
+from click import Path, BOOL
 
 from sunblock.jobs import job
 
@@ -20,7 +21,10 @@ class AddGFFInfo(job.Job):
     def define(self, shard=None):
         self.use_venv("/ibers/ernie/groups/rumenISPG/mgkit/venv/bin/activate")
         #TODO filtered.gff assumption
-        self.add_array("queries", sorted(glob.glob(self.config["directory"]["value"] + "/*.filtered.gff")), "QUERY")
+        if os.path.isfile(self.config["directory"]["value"]):
+            self.add_array("queries", [self.config["directory"]["value"]], "QUERY")
+        else:
+            self.add_array("queries", sorted(glob.glob(self.config["directory"]["value"] + "/*.filtered.gff")), "QUERY")
 
         self.set_pre_commands([
             "OUTFILE=$OUTDIR/`basename $QUERY .gff`.annotated.gff.wip",

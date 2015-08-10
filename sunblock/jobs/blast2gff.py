@@ -22,7 +22,6 @@ class BLAST2GFF(job.Job):
         self.add_key("db_qual", "Database Quality Threshold", "Database Quality Threshold (SP10, TR8)", int)
 
     def define(self, shard=None):
-        #self.use_module("python")
         self.use_venv("/ibers/ernie/groups/rumenISPG/mgkit/venv/bin/activate")
         self.add_array("queries", sorted(glob.glob(self.config["directory"]["value"] + "/*." + self.config["ext"]["value"])), "QUERY")
 
