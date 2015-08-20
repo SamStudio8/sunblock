@@ -12,12 +12,17 @@ class SAMToolsIndex(job.Job):
         super(SAMToolsIndex, self).__init__()
         self.template_name = "samtools-index"
 
-        self.add_key("file", "Path to file to index", "File to index", Path(exists=True, readable=True, writable=True, resolve_path=True))
+        self.add_key("in", "Input", "Input", Path(exists=True, readable=True, writable=True, resolve_path=True))
 
     def define(self, shard=None):
+        if os.path.isfile(self.config["in"]["value"]):
+            self.add_array("queries", [self.config["in"]["value"]], "QUERY")
+        else:
+            self.add_array("queries", sorted(glob.glob(self.config["in"]["value"] + "/*.bam")), "QUERY")
+
         self.set_commands([
-            "/ibers/ernie/home/msn/git/samtools/samtools index %s" % (self.config["file"]["value"]),
+            "/ibers/ernie/home/msn/git/samtools/samtools index $QUERY"
         ])
-        self.add_post_checksum(self.config["file"]["value"] + ".bai")
+        self.add_post_checksum("$QUERY.bai")
 
 

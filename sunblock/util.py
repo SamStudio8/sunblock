@@ -14,6 +14,10 @@ from sunblock.jobs import (
         faidx,
         samtools_sort,
         samtools_index,
+        picard_markdup,
+        picard_seqdict,
+        gatk_get_targets,
+        gatk_realign_targets,
 )
 
 def get_template_list():
@@ -27,6 +31,10 @@ def get_template_list():
         "indexfa": faidx.IndexFA,
         "samtools-sort": samtools_sort.SAMToolsSort,
         "samtools-index": samtools_index.SAMToolsIndex,
+        "picard-markdup": picard_markdup.PicardMarkDup,
+        "picard-seqdict": picard_seqdict.PicardSeqDict,
+        "gatk-gettargets": gatk_get_targets.GATKGetTargets,
+        "gatk-realigntargets": gatk_realign_targets.GATKRealignTargets,
     }
 
 def get_job_list():
