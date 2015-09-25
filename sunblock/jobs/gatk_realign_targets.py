@@ -24,9 +24,9 @@ class GATKRealignTargets(job.Job):
             self.add_array("queries", sorted(glob.glob(self.config["in"]["value"] + "/*.targets.list")), "QUERY")
 
         self.set_commands([
-            "DUPFILE=$OUTDIR/`basename $QUERY .targets.list`.bam",
+            "DUPFILE=`dirname $QUERY`/`basename $QUERY .targets.list`.bam",
             "OUTFILE=$OUTDIR/`basename $QUERY .targets.list`.realign.bam",
-            "java -jar /ibers/ernie/home/msn/git/gatk-3.4.46/GenomeAnalysisTK.jar -T IndelRealigner -R %s -I $QUERY -targetIntervals %s -o $OUTFILE" % (self.config["reference"]["value"])
+            "java -Djava.io.tmpdir=$OUTDIR -jar /ibers/ernie/home/msn/git/gatk-3.4.46/GenomeAnalysisTK.jar -T IndelRealigner -R %s -I $DUPFILE -targetIntervals $QUERY -o $OUTFILE" % (self.config["reference"]["value"])
         ])
         self.add_post_checksum("$OUTFILE")
 

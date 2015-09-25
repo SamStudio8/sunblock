@@ -22,8 +22,8 @@ class PicardMarkDup(job.Job):
             self.add_array("queries", sorted(glob.glob(self.config["in"]["value"] + "/*.bam")), "QUERY")
 
         self.set_commands([
-            "OUTFILE=$OUTDIR/`basename $QUERY .bam`.markdup",
-            "java -jar /ibers/ernie/home/msn/git/picard-tools-1.138/picard.jar MarkDuplicates INPUT=$QUERY OUTPUT=$OUTFILE METRICS_FILE=%s" % (self.config["metric"]["value"]),
+            "OUTFILE=$OUTDIR/`basename $QUERY .bam`.markdup.bam",
+            "java -Djava.io.tmpdir=$OUTDIR -jar /ibers/ernie/home/msn/git/picard-tools-1.138/picard.jar MarkDuplicates INPUT=$QUERY OUTPUT=$OUTFILE METRICS_FILE=%s MAX_FILE_HANDLES_FOR_READ_ENDS_MAP=1000" % (self.config["metric"]["value"]),
         ])
         self.add_post_checksum("$OUTFILE")
 

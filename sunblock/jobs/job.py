@@ -34,7 +34,7 @@ class Job(object):
         self.prefix = None
 
     #TODO Switch to OrderedDict
-    def add_key(self, name, desc, prompt, type, validate=None):
+    def add_key(self, name, desc, prompt, type, validate=None, default=None):
         self.config[name] = {
             "key": name,
             "desc": desc,
@@ -42,7 +42,8 @@ class Job(object):
             "type": type,
             "value": None,
             "order": self.order,
-            "validate": validate
+            "validate": validate,
+            "default": default
         }
         self.order += 1
 
@@ -91,8 +92,8 @@ class Job(object):
             "#$ -t 1-%d" % n,
             "",
             "# Set log path (-j y causes -e to be ignored but we'll set it anyway)",
-            "#$ -e %s/$JOB_NAME.$JOB_ID.$TASK_ID.e" % job_stdeo_path,
-            "#$ -o %s/$JOB_NAME.$JOB_ID.$TASK_ID.o" % job_stdeo_path,
+            "#$ -e %s/$TASK_ID.e" % job_stdeo_path,
+            "#$ -o %s/$TASK_ID.o" % job_stdeo_path,
             "#$ -j y",
         ]
 
@@ -117,6 +118,10 @@ class Job(object):
         sge_lines.append("# Modules and venvs")
         sge_lines.append("")
         sge_lines += ["module add %s" % name for name in self.modules]
+
+        # Open sunblock venv
+        sge_lines.append("source /ibers/ernie/home/msn/venv/sunglasses/bin/activate")
+        sge_lines.append("python /ibers/ernie/home/msn/git/sunblock/report_job_start.py $JOB_ID $SGE_TASK_ID $HOSTNAME")
 
         # Start venv if needed
         if self.venv is not None:
@@ -173,6 +178,7 @@ class Job(object):
             for path in self.post_checksum:
                 sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(md5sum `echo %s`)\" >> %s" % (path, job_md5_log_path))
 
+        sge_lines.append("python /ibers/ernie/home/msn/git/sunblock/report_job_end.py $JOB_ID $SGE_TASK_ID")
         # Shut down the venv
         if self.venv is not None:
             sge_lines.append("\ndeactivate")

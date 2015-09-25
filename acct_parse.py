@@ -14,11 +14,20 @@ from datetime import datetime, timedelta
 
 class Account(object):
 
-    def __init__(self, acct_path, noisy, parse_extra=None):
-        self.fh = open(acct_path)
+    def __init__(self, acct_path, noisy, parse_extra=None, annot=True, last_ts=None, only_jid=None):
+
+        try:
+            self.fh = open(acct_path)
+        except:
+            self.fh = []
+
         self.jobs = {}
+        self.lines = []
         self.parse_extra = parse_extra
         self.noisy = noisy
+        self.last_ts = last_ts
+        self.only_jid = only_jid
+        self.annot=annot
 
         self.fields_encountered = []
         self.parse()
@@ -31,9 +40,21 @@ class Account(object):
                 continue
 
             j = self.parse_job(line)
+
             if j is not None:
-                ja = self.annotate_job(j)
-                j.update(ja)
+                if self.last_ts:
+                    if j["end_time"] < self.last_ts:
+                        continue
+
+                if self.only_jid:
+                    if j["jobnumber"] != self.only_jid:
+                        continue
+
+                self.lines.append(line)
+
+                if self.annot:
+                    ja = self.annotate_job(j)
+                    j.update(ja)
 
                 job_str = str(j["jobnumber"])
                 if j["taskid"] > 0:
@@ -45,7 +66,7 @@ class Account(object):
                 if self.parse_extra:
                     self.jobs[job_str]["extra"] = self.parse_extra(j, ja)
 
-        self.fh.close()
+        #self.fh.close()
 
 
     def parse_job(self, line):
@@ -212,9 +233,9 @@ class Account(object):
             time_req_td     time_req as timedelta
         """
 
-        mem_req = (job_dict["category"]["req_l"]["h_vmem"]/1024)
+        mem_req_tot = (job_dict["category"]["req_l"]["h_vmem"]/1000)
         #mem_req_tot = mem_req * job_dict["slots"]
-        mem_req_tot = mem_req
+        mem_req = float(mem_req_tot) / job_dict["slots"]
         mem_used = (job_dict["maxvmem"]/1000000000)*0.931323
         mem_diff = mem_req_tot - mem_used
 

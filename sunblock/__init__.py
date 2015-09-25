@@ -1,4 +1,5 @@
 from datetime import datetime
+from datetime import timedelta
 import glob
 import json
 import os
@@ -6,6 +7,7 @@ import sys
 import time
 
 import click
+import requests
 from zenlog import log
 
 import sunblock.util as util
@@ -34,36 +36,12 @@ import sunblock.util as util
 #   * We should store a map of sge+jid>sun+jid
 #TODO How to pass job-specific requirements to a job-class (ie. #threads == multicores)
 #TODO Mark RSUB jobs as RSUB, when RSUBbing an RSUB, cascade back to origin
+#TODO Allow optional --file-extension argument to set queries
+#TODO More useful manifest builder, accept *multiple* n-tuples of files
+#TODO File/dir handling of input should be performed by the add-queries code, not in each job
 @click.group()
 def cli():
     pass
-
-@cli.command(help="Generate a job configuration")
-@click.argument('template')
-def init(template):
-
-    # Does template exist?
-    if template not in util.get_template_list():
-        log.error("No template for job type: '%s'" % template)
-        sys.exit(1)
-
-    job = util.get_template_list()[template]()
-    log.debug("Found template for job type: '%s' with %d required keys" % (template, len(job.config)))
-    for key, conf in sorted(job.config.items(), key=lambda x: x[1]["order"]):
-        log.debug("\t%s: %s" % (key, conf["desc"]))
-
-    # Prompt
-    for key, conf in sorted(job.config.items(), key=lambda x: x[1]["order"]):
-        job.set_key(key, click.prompt(conf["prompt"], type=conf["type"]))
-
-    # Write
-    to_write = {"template": template}
-    for key, conf in job.config.items():
-        to_write[key] = conf["value"]
-
-    out_fh = open("job.out", "w")
-    out_fh.write(json.dumps(to_write))
-    out_fh.close()
 
 @cli.command(help="Resubmit jobs (or a subset of their tasks)")
 @click.argument("tasks")
@@ -241,6 +219,7 @@ def resub(tasks, dry):
                 })
                 new_record["njobs"] += 1
                 new_record["tjobs"] += int(te)
+                new_record["jid"] = int(jid)
 
             if not util.append_job_list(new_record):
                 print("Error appending to sunblock record file.")
@@ -248,19 +227,23 @@ def resub(tasks, dry):
                 print("Submitted %d job arrays, totalling %d jobs." % (new_record["njobs"], new_record["tjobs"]))
 
 @cli.command(help="Execute a configured job")
-@click.argument('config', type=click.Path(exists=True, readable=True))
+@click.argument('template')
 @click.option("--dry", is_flag=True)
-def execute(config, dry):
+def execute(template, dry):
 
-    # Open
-    in_fh = open(config)
-    config = json.loads(in_fh.read())
-    in_fh.close()
+    # Does template exist?
+    if template not in util.get_template_list():
+        log.error("No template for job type: '%s'" % template)
+        sys.exit(1)
 
-    # Load
-    job = util.get_template_list()[config["template"]]()
+    job = util.get_template_list()[template]()
+    log.debug("Found template for job type: '%s' with %d required keys" % (template, len(job.config)))
     for key, conf in sorted(job.config.items(), key=lambda x: x[1]["order"]):
-        job.set_key(key, config[key])
+        log.debug("\t%s: %s" % (key, conf["desc"]))
+
+    # Prompt
+    for key, conf in sorted(job.config.items(), key=lambda x: x[1]["order"]):
+        job.set_key(key, click.prompt(conf["prompt"], default=conf["default"], type=conf["type"]))
 
     # Check config
     #TODO More helpful output -- what key is missing or incorrect?
@@ -271,7 +254,8 @@ def execute(config, dry):
     # Name the job...
     #TODO Make it filepath friendly...
     #TODO Force resolving of working dir
-    job_name = click.prompt("Job Name")
+    user_job_name = click.prompt("Job Name")
+    job_name = "%s-%s-%s" % (job.template_name, datetime.now().strftime("%Y-%m-%d_%H%M"), user_job_name)
     job_working_dir = click.prompt("Working Dir [default: .]", type=click.Path(exists=True, writable=True))
     if job_working_dir == ".":
         job_working_dir = None
@@ -289,21 +273,22 @@ def execute(config, dry):
     #FUTURE Create soft links to output directory?
     job_basepath = os.path.join(util.get_sunblock_path(), job_name)
 
-    now = datetime.now()
     job_queue = []
     job_scripts = []
 
+    config = job.config
+    config["template"] = template
     for shard in job.get_shards():
         #TODO gross.
         # Re-load
         job = util.get_template_list()[config["template"]]()
         for key, conf in sorted(job.config.items(), key=lambda x: x[1]["order"]):
-            job.set_key(key, config[key])
+            job.set_key(key, config[key]["value"])
         job.name = job_name
         job.shard = shard
         job.WORKING_DIR = job_working_dir
 
-        job_prefix = "%s__%s__%s" % (job.template_name, job_name, now.strftime("%Y-%m-%d_%H%M"))
+        job_prefix = job_name
         job.prefix = job_prefix
 
         job.define(shard=shard)
@@ -382,9 +367,14 @@ def execute(config, dry):
                 "working_dir": job.WORKING_DIR,
                 "name": job_name
             }
+            new_record_s = {
+                "api_key": util.get_sunblock_conf()["api_key"],
+                "jobs": [],
+                "working_dir": job.WORKING_DIR,
+            }
 
             from subprocess import check_output
-            for name in script_paths:
+            for l, name in enumerate(script_paths):
                 p = check_output(['qsub', '-terse', name])
 
                 try:
@@ -398,15 +388,40 @@ def execute(config, dry):
                 if trange:
                     ts, te = trange.split(":")[0].split("-")
 
+                subjobs = []
+                print ts, te
+                for k in range(int(ts), int(te) + 1):
+                    subjobs.append({
+                        "tid": k,
+                        "manifest_line": job.array["values"][k-1],
+                        "log_path": os.path.join(job_stdeo_path, "%d.o" % k)
+                    })
+
                 new_record["jobs"].append({
                     "jid": int(jid),
                     "t_start": int(ts),
                     "t_end": int(te),
                     "script_path": name
                 })
+                new_record_s["jobs"].append({
+                    "jid": int(jid),
+                    "name": user_job_name,
+                    "owner": "sunblock",
+                    "subjobs": subjobs,
+
+                    "slots": cores,
+                    "mem_req": int(mem_gb * 1000000000 * 1.073741824),
+                    "time_req": time_hours,
+
+                    "script_text": job_scripts[l],
+                    "template": job.template_name,
+                })
                 new_record["njobs"] += 1
                 new_record["tjobs"] += int(te)
+                new_record["jid"] = int(jid)
 
+            host = util.get_sunblock_conf()["sunblock_host"]
+            r = requests.post(host+"/jobs/submit/", json=new_record_s, verify=False)
             if not util.append_job_list(new_record):
                 print("Error appending to sunblock record file.")
             else:
@@ -484,13 +499,54 @@ def jobs(job_id, type, acct_path, format, expand, noisy, failed):
             }
             jid_to_i[subjob["jid"]] = i
 
+    # Try to get last timestamp
+    last_ts = None
+    try:
+        last = util.get_job_list()[-1]
+        last_ts = last["timestamp"]
+    except IndexError:
+        pass
 
-    acct = Account(acct_path, noisy)
+    # Parse old cached entries
+    seen_jids = []
+    acct = Account(util.get_cache_acct_fh(), noisy)
     for id, job in sorted(acct.jobs.items()):
         jid = job["jobnumber"]
         tid = job["taskid"]
 
         if jid in jid_to_i:
+            curr_jid_i = jid_to_i[jid]
+            seen_jids.append(jid)
+
+            job_statii[curr_jid_i]["total_found"] += 1
+            job_statii[curr_jid_i]["subjobs"][jid]["found"] += 1
+            job_statii[curr_jid_i]["subjobs"][jid]["tid"] = tid
+
+            if job["exit_status"] != 0:
+                job_statii[curr_jid_i]["total_nonzero"] += 1
+                job_statii[curr_jid_i]["subjobs"][jid]["nonzero"] += 1
+            else:
+                if failed:
+                    continue
+
+            job_statii[curr_jid_i]["subjobs"][jid]["array_jobs"].append(tid)
+
+    seen_jids = set(seen_jids)
+    for seen in seen_jids:
+        del jid_to_i[seen]
+
+    # Parse new entries
+    acct = Account(acct_path, noisy, last_ts=last_ts)
+    count = -1
+    for id, job in sorted(acct.jobs.items()):
+        count += 1
+        jid = job["jobnumber"]
+        tid = job["taskid"]
+
+        if jid in jid_to_i:
+            # Write new entry
+            util.append_cache_account(acct.lines[count])
+
             curr_jid_i = jid_to_i[jid]
             job_statii[curr_jid_i]["total_found"] += 1
             job_statii[curr_jid_i]["subjobs"][jid]["found"] += 1
@@ -504,6 +560,7 @@ def jobs(job_id, type, acct_path, format, expand, noisy, failed):
                     continue
 
             job_statii[curr_jid_i]["subjobs"][jid]["array_jobs"].append(tid)
+
 
     for i in job_statii:
         if type.lower() == "summary":

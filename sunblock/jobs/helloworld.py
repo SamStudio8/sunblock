@@ -8,6 +8,9 @@ class HelloWorld(job.Job):
         super(HelloWorld, self).__init__()
         self.template_name = "helloworld"
 
+    def get_shards(self):
+        return [0,0,0]
+
     def define(self, shard=None):
         self.add_array("messages", [
             "Hello",
