@@ -4,8 +4,6 @@ import os
 import click
 from zenlog import log
 
-#TODO Should probably have an SGEJob class inheriting from Job to
-#     modularise SGE specific functionality from generic job handling
 class Job(object):
 
     def __init__(self):
@@ -14,6 +12,7 @@ class Job(object):
         self.config = {}
         self.template_name = "sunblockjob"
         self.name = "sunblockjob"
+        self.engine = "sunblock"
 
         self.modules = []
         self.venv = None
@@ -69,55 +68,19 @@ class Job(object):
         }]
 
     def prepare(self, job_prefix, job_basepath, queue_list, mem_gb, time_hours, cores):
-        job_stdeo_path = os.path.join(job_basepath, "stdeo")
-        job_config_path = os.path.join(job_basepath, "config")
-        job_script_path = os.path.join(job_basepath, "script")
-        job_log_path = os.path.join(job_basepath, "log")
-
-        job_md5_log_path = os.path.join(job_log_path, job_prefix + ".md5")
-        job_log_log_path = os.path.join(job_log_path, job_prefix + ".log")
+        JOB_PATHS = self.prepare_paths(job_prefix, job_basepath)
 
         # Determine whether the job will be array-ed
         n = 1
         if self.array is not None:
             n = self.array["n"]
 
-        # Build header
-        sge_lines = [
-            "#$ -S /bin/sh",
-            "#$ -q %s" % ",".join(queue_list),
-            "#$ -l h_vmem=%dG" % mem_gb,
-            "#$ -l h_rt=%d:0:0" % time_hours,
-            "#$ -R y",
-            "#$ -t 1-%d" % n,
-            "",
-            "# Set log path (-j y causes -e to be ignored but we'll set it anyway)",
-            "#$ -e %s/$TASK_ID.e" % job_stdeo_path,
-            "#$ -o %s/$TASK_ID.o" % job_stdeo_path,
-            "#$ -j y",
-        ]
-
-        if self.FORWARD_ENV:
-            sge_lines.append("#$ -V")
-
-        if cores > 1:
-            sge_lines.append("#$ -pe multithread %d" % cores)
-
-        sge_lines.append("")
-
-        if self.WORKING_DIR:
-            sge_lines.append("#$ -wd %s" % self.WORKING_DIR)
-            sge_lines.append("OUTDIR=%s" % self.WORKING_DIR)
-        else:
-            sge_lines.append("#$ -cwd")
-            sge_lines.append("OUTDIR=`pwd -P`")
-
-        sge_lines.append("")
+        lines = self.prepare_header(queue_list, mem_gb, time_hours, cores, JOB_PATHS, n=n)
 
         # Append modules
-        sge_lines.append("# Modules and venvs")
-        sge_lines.append("")
-        sge_lines += ["module add %s" % name for name in self.modules]
+        lines.append("# Modules and venvs")
+        lines.append("")
+        lines += ["module add %s" % name for name in self.modules]
 
         # Open sunblock venv
         sge_lines.append("source /ibers/ernie/home/msn/venv/sunglasses/bin/activate")
@@ -125,21 +88,21 @@ class Job(object):
 
         # Start venv if needed
         if self.venv is not None:
-            sge_lines.append("source %s" % self.venv)
+            lines.append("source %s" % self.venv)
 
         # Housekeeping
         #TODO Flag for enabling core dumps
-        sge_lines.append("# Housekeeping")
+        lines.append("# Housekeeping")
         if not self.IGNORE_UNSET:
-            sge_lines.append("# * Abort on unset variable")
-            sge_lines.append("set -u")
-        sge_lines.append("# * Abort on non-zero")
-        sge_lines.append("set -e")
-        sge_lines.append("# * Disable core dumps")
-        sge_lines.append("ulimit -c 0")
-        sge_lines.append("")
+            lines.append("# * Abort on unset variable")
+            lines.append("set -u")
+        lines.append("# * Abort on non-zero")
+        lines.append("set -e")
+        lines.append("# * Disable core dumps")
+        lines.append("ulimit -c 0")
+        lines.append("")
 
-        sge_lines.append("CURR_i=$(($SGE_TASK_ID - 1))")
+        lines.append("CURR_i=$(($SUNBLOCK_TASK_ID - 1))")
 
         # Add array if defined
         if self.array is not None:
@@ -147,46 +110,60 @@ class Job(object):
             for i, f in enumerate(self.array["values"]):
                 if i == 0:
                     # Open array definition
-                    sge_lines.append("\n%s=(%s" % (self.array["name"], f.strip()))
+                    lines.append("\n%s=(%s" % (self.array["name"], f.strip()))
                 else:
-                    sge_lines.append("\t%s" % f.strip())
-            sge_lines.append(")")
-            sge_lines.append("%s=${%s[$CURR_i]}" % (self.array["var"], self.array["name"]))
+                    lines.append("\t%s" % f.strip())
+            lines.append(")")
+            lines.append("%s=${%s[$CURR_i]}" % (self.array["var"], self.array["name"]))
 
-        sge_lines.append("\n#Pre Commands")
+        lines.append("\n#Pre Commands")
         # Pre Commands
         for line in self.pre_commands:
-            sge_lines.append(line)
+            lines.append(line)
 
-        sge_lines.append("\n#Pre Log")
+        lines.append("\n#Pre Log")
         # Pre Logs
         for line in self.pre_log:
-            sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(%s)\" >> %s" % (line, job_log_log_path))
+            lines.append("echo \"[$(date)][$SUNBLOCK_JOB_ID][$SUNBLOCK_TASK_ID]: $(%s)\" >> %s" % (line, JOB_PATHS["log_log_path"]))
 
-        sge_lines.append("\n#Commands")
+        lines.append("\n#Commands")
         # Commands
         for line in self.commands:
-            sge_lines.append(line)
+            lines.append(line)
 
-        sge_lines.append("\n#Post Log")
+        lines.append("\n#Post Log")
         # Post Log
         for line in self.post_log:
-            sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(%s)\" >> %s" % (line, job_log_log_path))
+            lines.append("echo \"[$(date)][$SUNBLOCK_JOB_ID][$SUNBLOCK_TASK_ID]: $(%s)\" >> %s" % (line, JOB_PATHS["log_log_path"]))
 
         if len(self.post_checksum) > 0:
-            sge_lines.append("\n#Checksum Output")
+            lines.append("\n#Checksum Output")
             for path in self.post_checksum:
-                sge_lines.append("echo \"[$(date)][$JOB_ID][$SGE_TASK_ID]: $(md5sum `echo %s`)\" >> %s" % (path, job_md5_log_path))
+                lines.append("echo \"[$(date)][$SUNBLOCK_JOB_ID][$SUNBLOCK_TASK_ID]: $(md5sum `echo %s`)\" >> %s" % (path, JOB_PATHS["md5_log_path"]))
 
         sge_lines.append("python /ibers/ernie/home/msn/git/sunblock/report_job_end.py $JOB_ID $SGE_TASK_ID")
         # Shut down the venv
         if self.venv is not None:
-            sge_lines.append("\ndeactivate")
+            lines.append("\ndeactivate")
 
-        return "\n".join(sge_lines)
+        return "\n".join(lines)
+
+    def prepare_header(self, queue_list, mem_gb, time_hours, cores):
+        raise NotImplementedError("prepare_header")
+
+    def prepare_paths(self, job_prefix, job_basepath):
+        return {
+            "stdeo_path": os.path.join(job_basepath, "stdeo")
+            "config_path": os.path.join(job_basepath, "config")
+            "script_path": os.path.join(job_basepath, "script")
+            "log_path": os.path.join(job_basepath, "log")
+
+            "md5_log_path": os.path.join(job_log_path, job_prefix + ".md5")
+            "log_log_path": os.path.join(job_log_path, job_prefix + ".log")
+        }
 
     def define(self, shard=None):
-        raise NotImplementedError()
+        raise NotImplementedError("define")
 
     def use_module(self, module_name):
         #FUTURE Check module list
@@ -226,3 +203,90 @@ class Job(object):
     def add_post_checksum(self, path):
         self.post_checksum.append(path)
 
+
+class LSFJob(Job):
+
+    def __init__(self):
+        super(SGEJob, self).__init__()
+        self.template_name = "sunblockjob-lsf"
+        self.name = "sunblockjob-lsf"
+        self.engine = "LSF"
+
+    def prepare_header(queue_list, mem_gb, time_hours, cores, JOB_PATHS, n=1):
+        # Build header
+        lines = [
+            "#BSUB -L /bin/sh",
+            "#BSUB -q %s" % ",".join(queue_list),
+            "#BSUB -M %d" % (mem_gb * 1000),
+            "#BSUB -R \"select[mem>%d] rusage[mem=%d]\"" % (mem_gb * 1000, mem_gb * 1000),
+            "#BSUB -W %d:0" % time_hours,
+            "#BSUB -J job[1-%d]" % n,
+            "",
+            "#BSUB -o %s/$LSB_JOBINDEX.eo" % JOB_PATHS["stdeo_path"],
+        ]
+
+        if not self.FORWARD_ENV:
+            print "WARNING: LSF automatically forwards environment variables!"
+
+        if cores > 1:
+            # Not sure if this is the correct way to multithread (though guess it
+            # depends on whether user wants OpenMP or not)
+            lines.append("#BSUB -n %d" % cores)
+
+        lines.append("")
+
+        if self.WORKING_DIR:
+            lines.append("#BSUB -cwd %s" % self.WORKING_DIR)
+            lines.append("OUTDIR=%s" % self.WORKING_DIR)
+        else:
+            lines.append("#BSUB -cwd")
+            lines.append("OUTDIR=`pwd -P`")
+
+        lines.append("\nSUNBLOCK_JOB_ID=$LSB_JOBID")
+        lines.append("SUNBLOCK_TASK_ID=$LSB_JOBINDEX\n")
+
+        return lines
+
+class SGEJob(Job):
+
+    def __init__(self):
+        super(SGEJob, self).__init__()
+        self.template_name = "sunblockjob-sge"
+        self.name = "sunblockjob-sge"
+        self.engine = "SGE"
+
+    def prepare_header(queue_list, mem_gb, time_hours, cores, JOB_PATHS, n=1):
+        # Build header
+        lines = [
+            "#$ -S /bin/sh",
+            "#$ -q %s" % ",".join(queue_list),
+            "#$ -l h_vmem=%dG" % mem_gb,
+            "#$ -l h_rt=%d:0:0" % time_hours,
+            "#$ -R y",
+            "#$ -t 1-%d" % n,
+            "",
+            "# Set log path (-j y causes -e to be ignored but we'll set it anyway)",
+            "#$ -e %s/$TASK_ID.e" % JOB_PATHS["stdeo_path"],
+            "#$ -o %s/$TASK_ID.o" % JOB_PATHS["stdeo_path"],
+            "#$ -j y",
+        ]
+
+        if self.FORWARD_ENV:
+            lines.append("#$ -V")
+
+        if cores > 1:
+            lines.append("#$ -pe multithread %d" % cores)
+
+        lines.append("")
+
+        if self.WORKING_DIR:
+            lines.append("#$ -wd %s" % self.WORKING_DIR)
+            lines.append("OUTDIR=%s" % self.WORKING_DIR)
+        else:
+            lines.append("#$ -cwd")
+            lines.append("OUTDIR=`pwd -P`")
+
+        lines.append("\nSUNBLOCK_JOB_ID=$JOB_ID")
+        lines.append("SUNBLOCK_TASK_ID=$SGE_TASK_ID\n")
+
+        return lines
