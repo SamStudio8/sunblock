@@ -4,6 +4,8 @@ import os
 import click
 from zenlog import log
 
+from .. import util
+
 class Job(object):
 
     def __init__(self):
@@ -83,8 +85,8 @@ class Job(object):
         lines += ["module add %s" % name for name in self.modules]
 
         # Open sunblock venv
-        lines.append("source /ibers/ernie/home/msn/venv/sunglasses/bin/activate")
-        lines.append("python /ibers/ernie/home/msn/git/sunblock/report_job_start.py $JOB_ID $SGE_TASK_ID $HOSTNAME")
+        lines.append("source %s/bin/activate" % util.get_sunblock_conf()["sunblock_venv"])
+        lines.append("sunblock report_job_start $SUNBLOCK_JOB_ID $SUNBLOCK_TASK_ID $HOSTNAME")
 
         # Start venv if needed
         if self.venv is not None:
@@ -141,7 +143,7 @@ class Job(object):
             for path in self.post_checksum:
                 lines.append("echo \"[$(date)][$SUNBLOCK_JOB_ID][$SUNBLOCK_TASK_ID]: $(md5sum `echo %s`)\" >> %s" % (path, JOB_PATHS["md5_log_path"]))
 
-        lines.append("python /ibers/ernie/home/msn/git/sunblock/report_job_end.py $JOB_ID $SGE_TASK_ID")
+        lines.append("sunblock report_job_end $SUNBLOCK_JOB_ID $SUNBLOCK_TASK_ID")
         # Shut down the venv
         if self.venv is not None:
             lines.append("\ndeactivate")

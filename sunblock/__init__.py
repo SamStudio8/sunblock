@@ -8,9 +8,12 @@ import time
 
 import click
 import requests
+requests.packages.urllib3.disable_warnings()
+
 from zenlog import log
 
-import sunblock.util as util
+import sunblock.util
+import sunblock.templates as _templates
 
 #TODO For the love of god make RSUB less awful
 #TODO Make pipelines repeatable? Job X follows Y or something. Be able to generate reports...
@@ -42,6 +45,44 @@ import sunblock.util as util
 @click.group()
 def cli():
     pass
+
+@cli.command(help="Notify sunblock-server of a job start")
+@click.argument("jid")
+@click.argument("tid")
+@click.argument("hostname")
+def report_job_start(jid, tid, hostname):
+    payload = {
+        "api_key": util.get_sunblock_conf()["api_key"],
+        "jid": jid,
+        "tid": tid,
+
+        "job": {},
+        "subjob": {
+            "start_dt": str(datetime.now()),
+            "hostname": hostname
+        }
+    }
+
+    host = util.get_sunblock_conf()["sunblock_host"]
+    requests.post(host+"/jobs/update/", json=payload, verify=False)
+
+@cli.command(help="Notify sunblock-server of a tentative job end")
+@click.argument("jid")
+@click.argument("tid")
+def report_job_end(jid, tid):
+    payload = {
+        "api_key": util.get_sunblock_conf()["api_key"],
+        "jid": jid,
+        "tid": tid,
+
+        "job": {},
+        "subjob": {
+            "end_dt": str(datetime.now()),
+            "tentative_completed": True
+        }
+    }
+    host = util.get_sunblock_conf()["sunblock_host"]
+    requests.post(host+"/jobs/update/", json=payload, verify=False)
 
 @cli.command(help="Resubmit jobs (or a subset of their tasks)")
 @click.argument("tasks")
@@ -122,7 +163,7 @@ def resub(tasks, dry):
                 with open(job_conf) as conf_fh:
                     config = json.loads(conf_fh.read())
 
-                    re_job = util.get_template_list()[job["template"]]()
+                    re_job = _templates.get_template_list()[job["template"]]()
                     for key, conf in sorted(re_job.config.items(), key=lambda x: x[1]["order"]):
                         re_job.set_key(key, config[key])
 
@@ -243,11 +284,11 @@ def resub(tasks, dry):
 def execute(template, dry):
 
     # Does template exist?
-    if template not in util.get_template_list():
+    if template not in _templates.get_template_list():
         log.error("No template for job type: '%s'" % template)
         sys.exit(1)
 
-    job = util.get_template_list()[template]()
+    job = _templates.get_template_list()[template]()
     log.debug("Found template for job type: '%s' with %d required keys" % (template, len(job.config)))
     for key, conf in sorted(job.config.items(), key=lambda x: x[1]["order"]):
         log.debug("\t%s: %s" % (key, conf["desc"]))
@@ -292,7 +333,7 @@ def execute(template, dry):
     for shard in job.get_shards():
         #TODO gross.
         # Re-load
-        job = util.get_template_list()[config["template"]]()
+        job = _templates.get_template_list()[config["template"]]()
         for key, conf in sorted(job.config.items(), key=lambda x: x[1]["order"]):
             job.set_key(key, config[key]["value"])
         job.name = job_name
@@ -412,7 +453,6 @@ def execute(template, dry):
                     ts, te = trange.split(":")[0].split("-")
 
                 subjobs = []
-                print ts, te
                 for k in range(int(ts), int(te) + 1):
                     subjobs.append({
                         "tid": k,
@@ -452,7 +492,7 @@ def execute(template, dry):
 
 @cli.command(help="List available templates")
 def templates():
-    print("\n".join(util.get_template_list()))
+    print("\n".join(_templates.get_template_list()))
 
 @cli.command(help="Summarise job information")
 @click.pass_context
