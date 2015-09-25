@@ -64,6 +64,8 @@ def get_sunblock_conf():
                 "last": 0,
                 "engine": "SGE",
                 "sunblock_venv": "",
+                "farm": "",
+                "lsf-group": ""
             }))
     with open(conf_path, "r") as json_file:
         return json.loads("\n".join(json_file.readlines()))

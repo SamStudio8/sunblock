@@ -76,6 +76,7 @@ class Job(object):
         n = 1
         if self.array is not None:
             n = self.array["n"]
+            self.N = n
 
         lines = self.prepare_header(queue_list, mem_gb, time_hours, cores, JOB_PATHS, n=n)
 
@@ -211,20 +212,22 @@ class Job(object):
 class LSFJob(Job):
 
     def __init__(self):
-        super(SGEJob, self).__init__()
+        super(LSFJob, self).__init__()
         self.template_name = "sunblockjob-lsf"
         self.name = "sunblockjob-lsf"
         self.engine = "LSF"
+        self.N = 1
 
-    def prepare_header(queue_list, mem_gb, time_hours, cores, JOB_PATHS, n=1):
+    def prepare_header(self, queue_list, mem_gb, time_hours, cores, JOB_PATHS, n=1):
         # Build header
         lines = [
             "#BSUB -L /bin/sh",
             "#BSUB -q %s" % ",".join(queue_list),
             "#BSUB -M %d" % (mem_gb * 1000),
             "#BSUB -R \"select[mem>%d] rusage[mem=%d]\"" % (mem_gb * 1000, mem_gb * 1000),
-            "#BSUB -W %d:0" % time_hours,
+            #"#BSUB -W %d:0" % time_hours, # Banned at Sanger # TODO Need more generic way of specifying these rules
             "#BSUB -J job[1-%d]" % n,
+            "#BSUB -G %s" % util.get_sunblock_conf()["lsf-group"], # Required for submission
             "",
             "#BSUB -o %s/$LSB_JOBINDEX.eo" % JOB_PATHS["stdeo_path"],
         ]
@@ -243,7 +246,7 @@ class LSFJob(Job):
             lines.append("#BSUB -cwd %s" % self.WORKING_DIR)
             lines.append("OUTDIR=%s" % self.WORKING_DIR)
         else:
-            lines.append("#BSUB -cwd")
+            #lines.append("#BSUB -cwd")
             lines.append("OUTDIR=`pwd -P`")
 
         lines.append("\nSUNBLOCK_JOB_ID=$LSB_JOBID")

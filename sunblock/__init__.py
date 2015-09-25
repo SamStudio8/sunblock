@@ -3,6 +3,7 @@ from datetime import timedelta
 import glob
 import json
 import os
+import re
 import sys
 import time
 
@@ -184,13 +185,10 @@ def resub(tasks, dry):
                     # Grim
                     # This *works* because SGEJob inherits from Job anyway, so there's no danger
                     # in monkey patching the class. In future this will be much less terrible.
-                    SUBMIT_COMMAND = ""
                     if util.get_sunblock_conf()["engine"] == "SGE":
-                        SUBMIT_COMMAND = "qsub"
                         from jobs.job import SGEJob
                         job.__class__.__bases__ = (SGEJob, )
                     elif util.get_sunblock_conf()["engine"] == "LSF":
-                        SUBMIT_COMMAND = "bsub"
                         from jobs.job import LSFJob
                         job.__class__.__bases__ = (LSFJob, )
                     else:
@@ -353,13 +351,10 @@ def execute(template, dry):
         # Grim
         # This *works* because SGEJob inherits from Job anyway, so there's no danger
         # in monkey patching the class. In future this will be much less terrible.
-        SUBMIT_COMMAND = ""
         if util.get_sunblock_conf()["engine"] == "SGE":
-            SUBMIT_COMMAND = "qsub"
             from jobs.job import SGEJob
             job.__class__.__bases__ = (SGEJob, )
         elif util.get_sunblock_conf()["engine"] == "LSF":
-            SUBMIT_COMMAND = "bsub"
             from jobs.job import LSFJob
             job.__class__.__bases__ = (LSFJob, )
         else:
@@ -414,7 +409,14 @@ def execute(template, dry):
                     except:
                         pass
 
-            job_script_script_path = os.path.join(job_script_path, job_prefix + "%s.sge" % manifest_shard)
+
+            if util.get_sunblock_conf()["engine"] == "SGE":
+                ext = "sge"
+            elif util.get_sunblock_conf()["engine"] == "LSF":
+                ext = "lsf"
+            else:
+                ext = "script"
+            job_script_script_path = os.path.join(job_script_path, job_prefix + "%s.%s" % (manifest_shard, ext))
 
             fo = open(job_script_script_path, "w")
             fo.writelines(job_scripts[i])
@@ -439,24 +441,44 @@ def execute(template, dry):
             }
             new_record_s = {
                 "api_key": util.get_sunblock_conf()["api_key"],
+                "farm": util.get_sunblock_conf()["farm"],
                 "jobs": [],
                 "working_dir": job.WORKING_DIR,
             }
 
-            from subprocess import check_output
             for l, name in enumerate(script_paths):
-                p = check_output([SUBMIT_COMMAND, '-terse', name])
-
-                try:
-                    jid, trange = p.strip().split(".")
-                except ValueError:
-                    jid = p.strip()
-                    trange = None
                 ts = 1
                 te = 1
 
-                if trange:
-                    ts, te = trange.split(":")[0].split("-")
+                if util.get_sunblock_conf()["engine"] == "SGE":
+                    from subprocess import check_output
+                    p = check_output(['qsub', '-terse', name])
+
+                    try:
+                        jid, trange = p.strip().split(".")
+                    except ValueError:
+                        jid = p.strip()
+                        trange = None
+                    if trange:
+                        ts, te = trange.split(":")[0].split("-")
+
+                elif util.get_sunblock_conf()["engine"] == "LSF":
+                    from subprocess import Popen, PIPE
+                    p = Popen(['bsub'], stdin=PIPE, stdout=PIPE, stderr=PIPE)
+                    # Spoonfeed LSF because ffs what
+                    p = p.communicate("\n".join(open(name).readlines()))
+
+                    # Get JID and hack trange
+                    try:
+                        jid = re.search("\d+", p[0]).group(0)
+                    except:
+                        raise Exception("Could not get job id from bsub?")
+
+                    trange = job_queue[l].N
+                    ts = 1
+                    te = trange
+                else:
+                    raise Exception()
 
                 subjobs = []
                 for k in range(int(ts), int(te) + 1):
