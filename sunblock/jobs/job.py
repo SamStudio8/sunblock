@@ -83,8 +83,8 @@ class Job(object):
         lines += ["module add %s" % name for name in self.modules]
 
         # Open sunblock venv
-        sge_lines.append("source /ibers/ernie/home/msn/venv/sunglasses/bin/activate")
-        sge_lines.append("python /ibers/ernie/home/msn/git/sunblock/report_job_start.py $JOB_ID $SGE_TASK_ID $HOSTNAME")
+        lines.append("source /ibers/ernie/home/msn/venv/sunglasses/bin/activate")
+        lines.append("python /ibers/ernie/home/msn/git/sunblock/report_job_start.py $JOB_ID $SGE_TASK_ID $HOSTNAME")
 
         # Start venv if needed
         if self.venv is not None:
@@ -141,26 +141,28 @@ class Job(object):
             for path in self.post_checksum:
                 lines.append("echo \"[$(date)][$SUNBLOCK_JOB_ID][$SUNBLOCK_TASK_ID]: $(md5sum `echo %s`)\" >> %s" % (path, JOB_PATHS["md5_log_path"]))
 
-        sge_lines.append("python /ibers/ernie/home/msn/git/sunblock/report_job_end.py $JOB_ID $SGE_TASK_ID")
+        lines.append("python /ibers/ernie/home/msn/git/sunblock/report_job_end.py $JOB_ID $SGE_TASK_ID")
         # Shut down the venv
         if self.venv is not None:
             lines.append("\ndeactivate")
 
         return "\n".join(lines)
 
-    def prepare_header(self, queue_list, mem_gb, time_hours, cores):
+    def prepare_header(self, queue_list, mem_gb, time_hours, cores, PATHS, n=1):
         raise NotImplementedError("prepare_header")
 
     def prepare_paths(self, job_prefix, job_basepath):
-        return {
-            "stdeo_path": os.path.join(job_basepath, "stdeo")
-            "config_path": os.path.join(job_basepath, "config")
-            "script_path": os.path.join(job_basepath, "script")
-            "log_path": os.path.join(job_basepath, "log")
-
-            "md5_log_path": os.path.join(job_log_path, job_prefix + ".md5")
-            "log_log_path": os.path.join(job_log_path, job_prefix + ".log")
+        paths = {
+            "stdeo_path": os.path.join(job_basepath, "stdeo"),
+            "config_path": os.path.join(job_basepath, "config"),
+            "script_path": os.path.join(job_basepath, "script"),
+            "log_path": os.path.join(job_basepath, "log"),
         }
+
+        paths["md5_log_path"] = os.path.join(paths["log_path"], job_prefix + ".md5")
+        paths["log_log_path"] = os.path.join(paths["log_path"], job_prefix + ".log")
+
+        return paths
 
     def define(self, shard=None):
         raise NotImplementedError("define")
@@ -255,7 +257,7 @@ class SGEJob(Job):
         self.name = "sunblockjob-sge"
         self.engine = "SGE"
 
-    def prepare_header(queue_list, mem_gb, time_hours, cores, JOB_PATHS, n=1):
+    def prepare_header(self, queue_list, mem_gb, time_hours, cores, JOB_PATHS, n=1):
         # Build header
         lines = [
             "#$ -S /bin/sh",

@@ -140,6 +140,17 @@ def resub(tasks, dry):
                     re_job.array["values"] = manifest
                     re_job.array["n"] = len(manifest)
 
+                    # Grim
+                    # This *works* because SGEJob inherits from Job anyway, so there's no danger
+                    # in monkey patching the class. In future this will be much less terrible.
+                    if util.get_sunblock_conf()["engine"] == "SGE":
+                        from jobs.job import SGEJob
+                        job.__class__.__bases__ = (SGEJob, )
+                    elif util.get_sunblock_conf()["engine"] == "LSF":
+                        from jobs.job import LSFJob
+                        job.__class__.__bases__ = (LSFJob, )
+                    else:
+                        print "Sunblock currently only supports SGE and attempts to support LSF.\nBravely selecting neither, you're probably about to have a bad time."
                     job_script = (re_job.prepare(job_prefix, job_basepath, queue_list, mem_gb, time_hours, cores))
 
 
@@ -294,6 +305,18 @@ def execute(template, dry):
         job.define(shard=shard)
 
         job_queue.append(job)
+
+        # Grim
+        # This *works* because SGEJob inherits from Job anyway, so there's no danger
+        # in monkey patching the class. In future this will be much less terrible.
+        if util.get_sunblock_conf()["engine"] == "SGE":
+            from jobs.job import SGEJob
+            job.__class__.__bases__ = (SGEJob, )
+        elif util.get_sunblock_conf()["engine"] == "LSF":
+            from jobs.job import LSFJob
+            job.__class__.__bases__ = (LSFJob, )
+        else:
+            print "Sunblock currently only supports SGE and attempts to support LSF.\nBravely selecting neither, you're probably about to have a bad time."
         job_scripts.append(job.prepare(job_prefix, job_basepath, queue_list, mem_gb, time_hours, cores))
 
     # All jobs prepared ok, write the files
