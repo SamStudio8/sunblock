@@ -184,10 +184,13 @@ def resub(tasks, dry):
                     # Grim
                     # This *works* because SGEJob inherits from Job anyway, so there's no danger
                     # in monkey patching the class. In future this will be much less terrible.
+                    SUBMIT_COMMAND = ""
                     if util.get_sunblock_conf()["engine"] == "SGE":
+                        SUBMIT_COMMAND = "qsub"
                         from jobs.job import SGEJob
                         job.__class__.__bases__ = (SGEJob, )
                     elif util.get_sunblock_conf()["engine"] == "LSF":
+                        SUBMIT_COMMAND = "bsub"
                         from jobs.job import LSFJob
                         job.__class__.__bases__ = (LSFJob, )
                     else:
@@ -250,7 +253,7 @@ def resub(tasks, dry):
 
             from subprocess import check_output
             for name in script_paths:
-                p = check_output(['qsub', '-terse', name])
+                p = check_output([SUBMIT_COMMAND, '-terse', name])
 
                 try:
                     jid, trange = p.strip().split(".")
@@ -350,10 +353,13 @@ def execute(template, dry):
         # Grim
         # This *works* because SGEJob inherits from Job anyway, so there's no danger
         # in monkey patching the class. In future this will be much less terrible.
+        SUBMIT_COMMAND = ""
         if util.get_sunblock_conf()["engine"] == "SGE":
+            SUBMIT_COMMAND = "qsub"
             from jobs.job import SGEJob
             job.__class__.__bases__ = (SGEJob, )
         elif util.get_sunblock_conf()["engine"] == "LSF":
+            SUBMIT_COMMAND = "bsub"
             from jobs.job import LSFJob
             job.__class__.__bases__ = (LSFJob, )
         else:
@@ -439,7 +445,7 @@ def execute(template, dry):
 
             from subprocess import check_output
             for l, name in enumerate(script_paths):
-                p = check_output(['qsub', '-terse', name])
+                p = check_output([SUBMIT_COMMAND, '-terse', name])
 
                 try:
                     jid, trange = p.strip().split(".")
